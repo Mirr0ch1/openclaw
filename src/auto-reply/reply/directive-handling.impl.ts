@@ -387,7 +387,9 @@ export async function handleDirectiveOnly(
         cfg: params.cfg,
         sessionEntry,
         agentId: activeAgentId,
+        sessionKey: runtimePolicySessionKey,
         sandboxAvailable: runtimeIsSandboxed,
+        elevatedRequested: (params.effectiveElevatedLevel ?? currentElevatedLevel) !== "off",
       });
       const nodeLabel = execDefaults.node ? `node=${execDefaults.node}` : "node=(unset)";
       return acknowledgeIgnoredDirective(
