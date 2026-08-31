@@ -304,7 +304,7 @@ export async function handleAgentExecutionError(params: {
     isGenericRunnerFailure: externalRunFailureReply?.isGenericRunnerFailure ?? false,
     cfg: turn.followupRun.run.config,
   });
-  takePendingLifecycleTerminal().emit("error", err, { fallbackExhaustedFailure: true });
+  takePendingLifecycleTerminal().emit("error", err);
   turn.replyOperation?.fail("run_failed", err);
   await params.modelPatch.fail(err);
   return {

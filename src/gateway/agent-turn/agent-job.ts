@@ -11,6 +11,7 @@ import {
   AGENT_RUN_TERMINAL_RETRY_GRACE_MS,
   buildAgentRunTerminalOutcome,
   buildAgentRunTerminalOutcomeFromLifecycleEvent,
+  hasExecutionSettlement,
   isStickyAgentRunTerminalOutcome,
   mergeAgentRunTerminalOutcome,
   type AgentRunTerminalOutcome,
@@ -310,7 +311,10 @@ function createSnapshotFromLifecycleEvent(params: {
   // agent.wait historically treats a bare abort flag as a retryable timeout.
   // Modern explicit stop reasons keep the canonical cancellation projection.
   const legacyBareAbort =
-    terminalOutcome.reason === "aborted" && data?.stopReason == null && data?.status == null;
+    !hasExecutionSettlement(data) &&
+    terminalOutcome.reason === "aborted" &&
+    data?.stopReason == null &&
+    data?.status == null;
   const terminalDelivery = normalizeAgentRunTerminalDeliverySnapshot(data?.terminalDelivery);
   const terminalReply = normalizeAgentRunTerminalReplySnapshot(data?.terminalReply);
   const normalizedTerminalReceipt = normalizeAgentRunTerminalReceipt(data?.terminalReceipt);
@@ -362,11 +366,12 @@ function ensureAgentRunListener() {
       data: evt.data,
     });
     agentRunStarts.delete(evt.runId);
-    if (phase === "error" && evt.data?.fallbackExhaustedFailure !== true) {
+    const executionSettled = hasExecutionSettlement(evt.data);
+    if (!executionSettled && phase === "error" && evt.data?.fallbackExhaustedFailure !== true) {
       schedulePendingAgentRunTerminal(pendingAgentRunErrors, snapshot);
       return;
     }
-    if (phase === "end" && snapshot.status === "timeout") {
+    if (!executionSettled && phase === "end" && snapshot.status === "timeout") {
       schedulePendingAgentRunTerminal(pendingAgentRunTimeouts, snapshot);
       return;
     }

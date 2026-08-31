@@ -8,7 +8,7 @@ import {
   createFollowupRun,
 } from "./agent-runner-execution.test-support.js";
 
-const state = setupAgentRunnerExecutionTestState();
+const state = await setupAgentRunnerExecutionTestState();
 
 describe("executeAgentTurn: conversation failures", () => {
   it("returns a session reset hint for Bedrock tool mismatch errors on external chat channels", async () => {

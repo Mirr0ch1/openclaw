@@ -117,11 +117,14 @@ describe("createAgentCommandLifecycle", () => {
             livenessState: "blocked",
             yielded: true,
             replayInvalid: true,
-            ...(phase === "error" ? { fallbackExhaustedFailure: true } : {}),
+            ...(phase !== "finishing" ? { executionSettled: true } : {}),
           }),
         }),
       );
       const event = emitAgentEvent.mock.calls[0]?.[0];
+      if (phase === "finishing") {
+        expect(event.data).not.toHaveProperty("executionSettled");
+      }
       expect(event.data.terminalDelivery).toEqual({ status: "sent", resultCount: 2 });
       expect(JSON.stringify(event)).not.toContain(secret);
       expect(event.data).not.toHaveProperty("unsafeMetadata");
@@ -207,6 +210,7 @@ describe("createAgentCommandLifecycle", () => {
       expect(event.data.error).toBe(
         renderFailoverCodeUserCopy("selected_auth_profile_unavailable"),
       );
+      expect(event.data.executionSettled).toBe(true);
       expect(JSON.stringify(event)).not.toContain(profileId);
       expect(JSON.stringify(event)).not.toContain(rawCause);
     },
