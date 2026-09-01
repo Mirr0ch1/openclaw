@@ -518,7 +518,9 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
       if (!this.isCurrentClient(client, clientEpoch) || this.agentEpoch !== agentEpoch) {
         return;
       }
-      await this.refresh({ force: true });
+      // Logout already invalidates auth state. A prepared read reflects removal
+      // without making the visible mutation wait for full provider discovery.
+      await this.refresh({ force: false });
       if (!this.isCurrentClient(client, clientEpoch) || this.agentEpoch !== agentEpoch) {
         return;
       }

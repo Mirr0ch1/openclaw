@@ -582,6 +582,33 @@ describe("ModelProvidersPage agent scope", () => {
     expect(request.mock.calls.filter(([method]) => method === "models.authLogout")).toHaveLength(1);
   });
 
+  it("finishes logout without waiting for full catalog discovery", async () => {
+    const { context, request } = createHarness("main");
+    const page = appendPage(context);
+    await waitForFast(() => expect(page.data?.config).toEqual({}));
+    request.mockClear();
+
+    await page.logout("xai", [{ provider: "xai", profileIds: ["xai:owner"] }]);
+
+    expect(request).toHaveBeenCalledWith("models.authLogout", {
+      provider: "xai",
+      profileIds: ["xai:owner"],
+      agentId: "main",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "models.authStatus",
+      { agentId: "main" },
+      { signal: expect.any(AbortSignal) },
+    );
+    expect(
+      request.mock.calls.some(
+        ([method, params]) => method === "models.list" && params?.refresh === true,
+      ),
+    ).toBe(false);
+    expect(page.busy["logout:xai"]).toBeUndefined();
+    expect(page.messages.xai).toEqual({ kind: "success", text: "Logged out." });
+  });
+
   it("stops queued agent-scoped logouts when route data changes the selected agent", async () => {
     const { agentSelection, context, request, snapshot } = createHarness("main");
     const page = appendPage(context);
