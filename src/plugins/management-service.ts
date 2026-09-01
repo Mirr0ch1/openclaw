@@ -676,7 +676,7 @@ function resolveInstalledHostedOfficialEntry(params: {
   bundledOfficialEntries: ReturnType<typeof prepareCatalogEntries>;
 }): {
   entry?: OfficialExternalPluginCatalogEntry;
-  hasPublishedIdentity: boolean;
+  clawhubPackage?: string;
 } {
   const identityPluginId = params.installOwner ?? params.record.pluginId;
   const trustedOfficialClawHubSpec = params.installRecord
@@ -743,7 +743,7 @@ function resolveInstalledHostedOfficialEntry(params: {
       packageName: hasInstalledOfficialProvenance ? hostedPackageName : undefined,
       source: "clawhub",
     })?.entry,
-    hasPublishedIdentity: Boolean(hasInstalledOfficialProvenance && hostedPackageName),
+    clawhubPackage: hasInstalledOfficialProvenance ? hostedPackageName : undefined,
   };
 }
 
@@ -882,12 +882,13 @@ export const listManagedPlugins = withManagedPluginCache(
     const metadata = params.metadata ?? resolveManagedPluginMetadata(params.config, env);
     const pluginDiagnostics = resolveManagedPluginDiagnostics(metadata, params.config);
     const officialCatalog = params.officialCatalog ?? (await loadOfficialCatalog());
-    // Overlay can backfill the name used by legacy npm identity; prepare the merged entry.
+    // Prepare the merged entry once; display names never add install identities.
     const officialEntries = prepareCatalogEntries(officialCatalog.entries);
     const bundledOfficialEntries = prepareCatalogEntries(
       listOfficialExternalPluginCatalogEntries(),
     );
     const installedIconsById = new Map<string, string | undefined>();
+    const installedClawHubPackages = new Set<string>();
     const capabilityConsentDiagnostics: PluginDiagnostic[] = [];
     const plugins = metadata.index.plugins.map((record): ManagedPluginCatalogEntry => {
       const enabled = isInstalledPluginEnabled(metadata.index, record.pluginId, params.config, env);
@@ -912,20 +913,24 @@ export const listManagedPlugins = withManagedPluginCache(
           });
         }
       }
-      const { entry: officialEntry, hasPublishedIdentity } = resolveInstalledHostedOfficialEntry({
+      const { entry: officialEntry, clawhubPackage } = resolveInstalledHostedOfficialEntry({
         record,
         ...(installOwner ? { installOwner } : {}),
         installRecord,
         officialEntries,
         bundledOfficialEntries,
       });
+      // A declared counterpart suppresses the same ClawHub package, not an npm namesake.
+      if (clawhubPackage) {
+        installedClawHubPackages.add(clawhubPackage);
+      }
       const officialCatalogMetadata = officialEntry
         ? normalizeCatalogMetadata(getOfficialExternalPluginCatalogManifest(officialEntry)?.catalog)
         : undefined;
       // Published plugin curation follows the live feed even after install, including
       // omission. Private bundled plugins without an exact package/source match stay local.
       const catalog =
-        hasPublishedIdentity && officialCatalog.hostedFeaturedAuthoritative
+        clawhubPackage && officialCatalog.hostedFeaturedAuthoritative
           ? {
               ...localCatalog,
               ...officialCatalogMetadata,
@@ -940,7 +945,7 @@ export const listManagedPlugins = withManagedPluginCache(
       // Only externally installed plugins (tracked install record, non-bundled) can be removed.
       const removable = record.origin !== "bundled" && Boolean(installOwner);
       const hostedListingAuthoritative =
-        hasPublishedIdentity && officialCatalog.hostedFeaturedAuthoritative === true;
+        Boolean(clawhubPackage) && officialCatalog.hostedFeaturedAuthoritative === true;
       const featuredAt =
         hostedListingAuthoritative && catalog?.featured === true
           ? normalizeFeaturedAt(officialEntry?.featuredAt)
@@ -1027,7 +1032,9 @@ export const listManagedPlugins = withManagedPluginCache(
         !pluginId ||
         !catalog ||
         installedIds.has(pluginId) ||
-        (clawhub && installedPackageNames.has(clawhub.name)) ||
+        (clawhub &&
+          (installedPackageNames.has(clawhub.name) ||
+            installedClawHubPackages.has(clawhub.name))) ||
         (npmPackage && installedPackageNames.has(npmPackage))
       ) {
         continue;
@@ -1120,7 +1127,7 @@ export const inspectManagedPlugin = withManagedPluginCache(
       const ownership = resolveInstalledPluginPackageOwnership(metadata.index, pluginId, env);
       const installOwner = ownership.ok ? ownership.value.installOwner : undefined;
       const installRecord = installOwner ? metadata.index.installRecords[installOwner] : undefined;
-      const { entry: officialEntry, hasPublishedIdentity } = resolveInstalledHostedOfficialEntry({
+      const { entry: officialEntry, clawhubPackage } = resolveInstalledHostedOfficialEntry({
         record,
         ...(installOwner ? { installOwner } : {}),
         installRecord,
@@ -1162,7 +1169,7 @@ export const inspectManagedPlugin = withManagedPluginCache(
             manifest,
             officialEntry,
             hostedListingAuthoritative:
-              hasPublishedIdentity && officialCatalog.hostedFeaturedAuthoritative === true,
+              Boolean(clawhubPackage) && officialCatalog.hostedFeaturedAuthoritative === true,
           }),
           origin: record.origin,
           installed: true,
