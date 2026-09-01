@@ -38,7 +38,6 @@ function resolveSupportedReasoningEffort(params: {
   );
 }
 
-/** Encode a resolved thinking selection for the native Codex runtime. */
 export function resolveCodexAppServerReasoningEffort(params: {
   thinkLevel: EmbeddedRunAttemptParams["thinkLevel"];
   modelId: string;

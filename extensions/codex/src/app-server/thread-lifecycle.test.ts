@@ -5838,12 +5838,13 @@ describe("native Codex Ultra turn mapping", () => {
         authProfileType: "api_key",
       });
       params.thinkLevel = requested;
+      const compat: ModelCompatConfig = {
+        supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+      };
       params.model = {
         ...createCodexTestModel("openai"),
         id: modelId,
-        compat: {
-          supportedReasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
-        } as never,
+        compat,
       };
 
       const request = buildTurnStartParams(params, {
@@ -5861,12 +5862,13 @@ describe("native Codex Ultra turn mapping", () => {
   it("preserves resolved Ultra independently of scalar reasoning presets", () => {
     const params = createAttemptParams({ provider: "codex", modelId: "gpt-5.6-sol" });
     params.thinkLevel = "ultra";
+    const compat: ModelCompatConfig = {
+      supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    };
     params.model = {
       ...createCodexTestModel("codex"),
       id: "gpt-5.6-sol",
-      compat: {
-        supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
-      } as never,
+      compat,
     };
 
     const request = buildTurnStartParams(params, {
