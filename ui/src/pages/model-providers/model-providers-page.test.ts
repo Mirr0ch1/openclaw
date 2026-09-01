@@ -609,6 +609,39 @@ describe("ModelProvidersPage agent scope", () => {
     expect(page.messages.xai).toEqual({ kind: "success", text: "Logged out." });
   });
 
+  it("finishes login without waiting for full catalog discovery", async () => {
+    const { context, request } = createHarness("main");
+    const page = appendPage(context);
+    await waitForFast(() => expect(page.data?.config).toEqual({}));
+    const originalRequest = request.getMockImplementation()!;
+    request.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "models.authLogin.start") {
+        return { sessionId: params?.sessionId, done: true, status: "done" };
+      }
+      return originalRequest(method);
+    });
+    request.mockClear();
+
+    page.providerLogin.start("xai", {
+      id: "xai-oauth",
+      label: "xAI OAuth",
+      mode: "login",
+    });
+
+    await vi.waitFor(() =>
+      expect(page.messages.xai).toEqual({
+        kind: "success",
+        text: "Signed in. Provider models are enabled; your default is unchanged.",
+      }),
+    );
+    await vi.waitFor(() => expect(requestCount(request, "models.authStatus")).toBe(1));
+    expect(
+      request.mock.calls.some(
+        ([method, params]) => method === "models.list" && params?.refresh === true,
+      ),
+    ).toBe(false);
+  });
+
   it("stops queued agent-scoped logouts when route data changes the selected agent", async () => {
     const { agentSelection, context, request, snapshot } = createHarness("main");
     const page = appendPage(context);

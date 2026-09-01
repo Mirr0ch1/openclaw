@@ -165,7 +165,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
     getClient: () => this.gateway.client,
     getAgentId: () => this.selectedAgentId || null,
     canStart: () => this.canMutate(),
-    refresh: () => this.refresh({ force: true }),
+    refresh: () => this.refresh({ force: false }),
     setMessage: (key, message) => this.setMessage(key, message),
   });
 

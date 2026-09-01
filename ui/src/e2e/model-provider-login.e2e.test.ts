@@ -144,6 +144,11 @@ describeControlUiE2e("Control UI provider login", () => {
       await gateway.resolveDeferred("models.authStatus");
       await expect.poll(async () => xaiCard.textContent()).toContain("Signed in");
       expect(await gateway.getRequests("config.patch")).toHaveLength(0);
+      expect(
+        (await gateway.getRequests("models.list")).some(
+          (request) => request.params.refresh === true,
+        ),
+      ).toBe(false);
       if (artifactDir) {
         await page.screenshot({
           animations: "disabled",

@@ -23,6 +23,9 @@ export type ModelProvidersPageTestElement = HTMLElement & {
   logout: (cardId: string, targets: ModelProviderLogoutTarget[]) => Promise<void>;
   messages: Record<string, { kind: "success" | "error"; text: string; warning?: string }>;
   pendingLogoutProvider: string | null;
+  providerLogin: {
+    start: (cardId: string, option: { id: string; label: string; mode: "login" }) => void;
+  };
   probe: (cardId: string, providers: string[]) => Promise<void>;
   probeResults: Record<string, ModelsProbeResult>;
   refresh: (opts: { force: boolean }) => Promise<void>;
