@@ -240,4 +240,25 @@ describe("provider channel login choices", () => {
 
     expect(result).toEqual({ status: "unsupported", choices: [] });
   });
+
+  it.each([
+    { label: "all plugins are disabled", plugins: { enabled: false } },
+    { label: "the owner is denied", plugins: { deny: ["test-provider"] } },
+    { label: "the owner is excluded by the allowlist", plugins: { allow: ["other-provider"] } },
+    {
+      label: "the owner entry is disabled",
+      plugins: { entries: { "test-provider": { enabled: false } } },
+    },
+  ])("hides login choices when $label", ({ plugins }) => {
+    const snapshot = metadataSnapshot([
+      choice({ provider: "alpha", method: "oauth", choiceId: "alpha" }),
+    ]);
+
+    expect(
+      resolveProviderChannelLoginChoice("alpha", {
+        config: { plugins },
+        metadataSnapshot: snapshot,
+      }),
+    ).toEqual({ status: "unsupported", choices: [] });
+  });
 });

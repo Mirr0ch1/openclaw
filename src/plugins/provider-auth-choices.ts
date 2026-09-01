@@ -3,6 +3,7 @@ import { sanitizeForLog } from "../../packages/terminal-core/src/ansi.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { normalizePluginsConfig, resolveEffectiveEnableState } from "./config-state.js";
 import { loadManifestMetadataSnapshot } from "./manifest-contract-eligibility.js";
+import { passesManifestOwnerBasePolicy } from "./manifest-owner-policy.js";
 import type { PluginManifestRecord } from "./manifest-registry.js";
 import {
   getOfficialExternalPluginCatalogManifest,
@@ -220,6 +221,9 @@ function resolveManifestProviderAuthChoiceCandidates(
   const registry = metadataSnapshot.manifestRegistry;
   const normalizedConfig = normalizePluginsConfig(params?.config?.plugins);
   return registry.plugins.flatMap((plugin) => {
+    if (!passesManifestOwnerBasePolicy({ plugin, normalizedConfig })) {
+      return [];
+    }
     if (plugin.origin === "workspace" && params?.includeWorkspacePlugins === false) {
       return [];
     }
