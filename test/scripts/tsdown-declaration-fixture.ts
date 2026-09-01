@@ -176,7 +176,10 @@ export function createFixture(groups: readonly string[] = TSDOWN_PLUGIN_SDK_DTS_
     // Exercise every real extension partition, even in the small compiler fixture.
     for (const id of ["fixture-a", "fixture-b", "fixture-c", "fixture-d", "fixture-e"]) {
       write(`extensions/${id}/openclaw.plugin.json`, JSON.stringify({ id }));
-      write(`extensions/${id}/package.json`, JSON.stringify({ name: `@openclaw/${id}` }));
+      write(
+        `extensions/${id}/package.json`,
+        JSON.stringify({ name: `@openclaw/${id}`, exports: { ".": "./dist/index.js" } }),
+      );
       write(`extensions/${id}/index.ts`, "export {};\n");
     }
   }

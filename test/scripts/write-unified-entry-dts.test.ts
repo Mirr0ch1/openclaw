@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { readArtifactRecord } from "../../scripts/lib/build-artifact-cache.mts";
@@ -41,6 +42,13 @@ describe("write-unified-entry-dts", () => {
     }
     write("dist/obsolete.d.ts", "obsolete root declaration");
     write("dist/extensions/removed/api.d.ts", "obsolete plugin declaration");
+    write("dist/extensions/anthropic/api.d.ts", "obsolete plugin API declaration");
+    write(
+      "dist/extensions/anthropic/agent-sdk-generated/old.d.ts",
+      "obsolete generated declaration",
+    );
+    const sdkAssetRoot = "dist/extensions/anthropic/agent-sdk";
+    write(`${sdkAssetRoot}/obsolete.d.ts`, "removed upstream SDK declaration");
     write(
       "consumer.ts",
       [
@@ -89,6 +97,29 @@ describe("write-unified-entry-dts", () => {
     }
     expect(fs.existsSync(path.join(root, "dist/obsolete.d.ts"))).toBe(false);
     expect(fs.existsSync(path.join(root, "dist/extensions/removed/api.d.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "dist/extensions/anthropic/api.d.ts"))).toBe(false);
+    expect(
+      fs.existsSync(path.join(root, "dist/extensions/anthropic/agent-sdk-generated/old.d.ts")),
+    ).toBe(false);
+    const sdkSource = path.dirname(
+      createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk"),
+    );
+    const sourceManifest = JSON.parse(
+      fs.readFileSync(path.join(sdkSource, "package.json"), "utf8"),
+    );
+    const sdkFiles: string[] = [...sourceManifest.files, "LICENSE.md", "README.md"];
+    expect(fs.readdirSync(path.join(root, sdkAssetRoot)).toSorted()).toEqual(
+      [...sdkFiles, "package.json"].toSorted(),
+    );
+    for (const file of sdkFiles) {
+      expect(fs.readFileSync(path.join(root, sdkAssetRoot, file))).toEqual(
+        fs.readFileSync(path.join(sdkSource, file)),
+      );
+    }
+    const { optionalDependencies: _nativeCli, ...packagedManifest } = sourceManifest;
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, sdkAssetRoot, "package.json"), "utf8")),
+    ).toEqual(packagedManifest);
     for (const [file, bytes] of Object.entries(preserved)) {
       expect(fs.readFileSync(path.join(root, file), "utf8")).toBe(bytes);
     }
@@ -105,7 +136,10 @@ describe("write-unified-entry-dts", () => {
     expect(record?.inputs).not.toContain("ui/unrelated.ts");
     expect(
       Object.keys(record?.outputs ?? {}).some(
-        (file) => file.includes(".app/") || file.includes("control-ui/"),
+        (file) =>
+          file.includes(".app/") ||
+          file.includes("control-ui/") ||
+          file.startsWith(`${sdkAssetRoot}/`),
       ),
     ).toBe(false);
     const cached = treeHashes(cache);
@@ -117,6 +151,7 @@ describe("write-unified-entry-dts", () => {
     for (const [file, bytes] of Object.entries(preserved)) {
       write(file, bytes);
     }
+    write(`${sdkAssetRoot}/obsolete.d.ts`, "removed upstream SDK declaration");
     const repeated = runUnifiedBuild(root);
     expect(repeated.status, repeated.stdout + repeated.stderr).toBe(0);
     expect(
