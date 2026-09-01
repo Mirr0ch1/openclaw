@@ -269,6 +269,11 @@ describeControlUiE2e("Control UI provider login", () => {
       expect(await gateway.getRequests("config.patch")).toHaveLength(0);
       expect(await gateway.getRequests("models.authLogin.start")).toHaveLength(1);
       expect(await gateway.getRequests("openclaw.setup.prepare.start")).toHaveLength(1);
+      expect(
+        (await gateway.getRequests("models.list")).some(
+          (request) => request.params.refresh === true,
+        ),
+      ).toBe(false);
     } finally {
       await context.close();
     }
