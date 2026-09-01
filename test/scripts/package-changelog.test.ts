@@ -42,6 +42,18 @@ const oversizedChangelog = cumulativeChangelog.replace(
   `${oversizedContributionRecord}\n## 2026.5.27`,
 );
 
+const oversizedAccountingLedger = `### Release accounting
+
+- Pull requests: **16,902**
+- Direct commits: **698**
+
+### Pull requests
+
+${"- [#123 — Contribution](https://github.com/openclaw/openclaw/pull/123) — by @contributor.\n".repeat(20_000)}
+### Direct commits
+
+- [\`1234567\` — Direct fix](https://github.com/openclaw/openclaw/commit/1234567890123456789012345678901234567890) — by Contributor.`;
+
 describe("package-changelog", () => {
   it("maps release-channel package versions to package changelog candidate headings", () => {
     expect(resolvePackageChangelogVersions("2026.5.28")).toEqual(["2026.5.28"]);
@@ -198,6 +210,19 @@ ${record}
       );
     },
   );
+
+  it("compacts an oversized accounting ledger behind its tag-pinned PR record", () => {
+    const source = `# Changelog\n\n## 2026.5.28\n\n${oversizedAccountingLedger}\n`;
+    const packaged = extractCurrentPackageChangelog(source, "2026.5.28");
+
+    expect(packaged).toContain("### Release accounting");
+    expect(packaged).toContain("### Pull requests and direct commits");
+    expect(packaged).toContain(
+      "https://github.com/openclaw/openclaw/blob/v2026.5.28/CHANGELOG.md#pull-requests",
+    );
+    expect(packaged).not.toContain("[#123 — Contribution]");
+    expect(packaged).not.toContain("### Direct commits");
+  });
 
   it("does not use the generated contribution link to satisfy the release-note minimum", () => {
     const source = `# Changelog\n\n## 2026.5.28\n\n### Fixes\n\n${oversizedContributionRecord}\n`;
