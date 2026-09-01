@@ -43,7 +43,7 @@ describe("applyPluginAutoEnable providers", () => {
     expect(result.config.plugins?.entries?.google?.enabled).toBe(true);
   });
 
-  it.each([
+  const googleProviderCases: Array<{ name: string; config: OpenClawConfig }> = [
     {
       name: "Google auth profile",
       config: {
@@ -64,6 +64,8 @@ describe("applyPluginAutoEnable providers", () => {
           providers: {
             google: {
               apiKey: "configured-google-key",
+              baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+              models: [],
             },
           },
         },
@@ -82,7 +84,9 @@ describe("applyPluginAutoEnable providers", () => {
         },
       },
     },
-  ] satisfies Array<{ name: string; config: OpenClawConfig }>)(
+  ];
+
+  it.each(googleProviderCases)(
     "auto-enables the Google plugin from $name under a restrictive allowlist",
     ({ config }) => {
       const result = applyPluginAutoEnable({
