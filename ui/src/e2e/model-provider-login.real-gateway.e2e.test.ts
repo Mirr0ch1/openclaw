@@ -43,6 +43,7 @@ suite.define(() => {
         },
       });
       const codexHome = path.join(state.home, ".codex");
+      const httpUrl = `http://127.0.0.1:${port}`;
       let gateway: GatewayServer | undefined;
       try {
         await mkdir(codexHome, { recursive: true });
@@ -66,8 +67,9 @@ suite.define(() => {
           gateway: {
             auth: { mode: "none" },
             controlUi: {
-              allowedOrigins: [new URL(suite.server.baseUrl).origin],
-              enabled: false,
+              allowedOrigins: [httpUrl],
+              enabled: true,
+              root: path.resolve("dist/control-ui"),
             },
             port,
           },
@@ -85,7 +87,7 @@ suite.define(() => {
         gateway = await startGatewayServer(port, {
           auth: { mode: "none" },
           bind: "loopback",
-          controlUiEnabled: false,
+          controlUiEnabled: true,
           sidecarStartup: "defer",
         });
 
@@ -100,12 +102,8 @@ suite.define(() => {
               : {}),
           },
           async ({ page }) => {
-            const url = new URL("settings/model-providers", suite.server.baseUrl);
-            url.searchParams.set("gatewayUrl", `ws://127.0.0.1:${port}`);
-            await page.goto(url.toString());
-            const confirmation = page.locator("openclaw-gateway-url-confirmation");
-            await confirmation.waitFor();
-            await confirmation.getByRole("button", { name: "Confirm", exact: true }).click();
+            const response = await page.goto(`${httpUrl}/settings/model-providers`);
+            expect(response?.status()).toBe(200);
 
             const signIn = page.getByRole("button", { name: "Sign in with OpenAI API Key" });
             await signIn.waitFor();
@@ -157,6 +155,7 @@ suite.define(() => {
                     defaultModel: DEFAULT_MODEL,
                     defaultModelUnchanged: true,
                     gateway: "real",
+                    gatewayServedControlUi: true,
                     providerModelsEnabled: true,
                     provider: "openai",
                     secureInputShown: false,

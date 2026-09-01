@@ -2398,6 +2398,16 @@ jobs:
           --configLoader runner
           ui/src/e2e/control-ui-auth-transports.e2e.test.ts
 
+      - name: Test provider login with the Gateway-served Control UI
+        env:
+          OPENCLAW_CAPTURE_UI_PROOF: ${{ github.event_name == 'workflow_dispatch' && inputs.capture_ui_proof && '1' || '0' }}
+          OPENCLAW_UI_E2E_ARTIFACT_DIR: .artifacts/control-ui-e2e/real-gateway
+        run: >-
+          node scripts/run-vitest.mjs run
+          --config test/vitest/vitest.ui-e2e.config.ts
+          --configLoader runner
+          ui/src/e2e/model-provider-login.real-gateway.e2e.test.ts
+
       - name: Test Control UI usage sessions owner attribution with a real Gateway
         env:
           OPENCLAW_CAPTURE_UI_PROOF: ${{ github.event_name == 'workflow_dispatch' && inputs.capture_ui_proof && '1' || '0' }}
