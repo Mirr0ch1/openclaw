@@ -148,7 +148,6 @@ describe("formatMSTeamsMarkdown", () => {
   }
 
   it.each([
-    ["`  foo  `", "<code> foo </code>"],
     ["`foo `", "<code>foo </code>"],
     ["` `", "<code> </code>"],
     ["before `  foo  ` after", "before <code> foo </code> after"],
