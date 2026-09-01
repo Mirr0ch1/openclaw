@@ -39,29 +39,30 @@ check(
 );
 
 const composition = registrySource.match(
-  /export const ProtocolSchemas: ProtocolSchemaRegistry = composeProtocolSchemaFragments\(\[([\s\S]*?)\]\s+as const\);/u,
+  /export const ProtocolSchemas:\s*([\s\S]*?)\s*= composeProtocolSchemaFragments\(\[([\s\S]*?)\]\s+as const\);/u,
 );
-const composedBindings = (composition?.[1] ?? "")
+const composedBindings = (composition?.[2] ?? "")
   .split("\n")
   .map((line) => line.trim().replace(/,$/u, ""))
   .filter(Boolean);
+const annotatedBindings = (composition?.[1] ?? "")
+  .split("&")
+  .map((type) => /^typeof ([A-Za-z0-9_]+)$/u.exec(type.trim())?.[1]);
 const importedBindings = fragmentImports.map(({ binding }) => binding);
-const hasEveryFragmentOnce = (bindings: string[]) =>
-  bindings.length === importedBindings.length &&
-  new Set(bindings).size === bindings.length &&
-  importedBindings.every((binding) => bindings.includes(binding));
-check(Boolean(composition), `${registryPath} must explicitly compose an ordered fragment array`);
 check(
-  hasEveryFragmentOnce(composedBindings),
+  Boolean(composition),
+  `${registryPath} must explicitly type and compose an ordered fragment array`,
+);
+check(
+  annotatedBindings.length === composedBindings.length &&
+    annotatedBindings.every((binding, index) => binding === composedBindings[index]),
+  `${registryPath} must annotate the composed fragments with their exact ordered typeof intersection`,
+);
+check(
+  composedBindings.length === importedBindings.length &&
+    new Set(composedBindings).size === composedBindings.length &&
+    importedBindings.every((binding) => composedBindings.includes(binding)),
   `${registryPath} must compose every imported fragment exactly once`,
-);
-const registryType = registrySource.match(/type ProtocolSchemaRegistry =([\s\S]*?);/u)?.[1] ?? "";
-const typedBindings = [...registryType.matchAll(/typeof ([A-Za-z0-9_]+)/gu)].map(
-  ([, binding = ""]) => binding,
-);
-check(
-  hasEveryFragmentOnce(typedBindings),
-  `${registryPath} must retain every fragment in its explicit declaration type`,
 );
 
 const fragmentFiles = fs
