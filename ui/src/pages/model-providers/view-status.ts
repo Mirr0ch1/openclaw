@@ -41,7 +41,7 @@ function hasProviderCredentials(card: ModelProviderCard): boolean {
 
 export function hasVerifiedProvider(card: ModelProviderCard): boolean {
   return (
-    card.catalogStatus === "ready" &&
+    (card.catalogStatus === "ready" || card.runtimeAvailableModelCount > 0) &&
     card.auth?.kind !== "expired" &&
     card.auth?.kind !== "missing" &&
     card.auth?.kind !== "expiring"
@@ -65,13 +65,16 @@ export function renderProviderStatus(card: ModelProviderCard) {
       label: t("common.failed"),
     });
   }
-  if (!hasProviderCredentials(card)) {
-    return renderAuthStatus(card);
-  }
   if (hasVerifiedProvider(card) && card.availableModelCount > 0) {
     return renderSettingsStatus({
       kind: "ok",
       label: t("modelProviders.status.ready"),
+    });
+  }
+  if (!hasProviderCredentials(card)) {
+    return renderSettingsStatus({
+      kind: "muted",
+      label: t("modelProviders.status.notSetUp"),
     });
   }
   return hasVerifiedProvider(card)

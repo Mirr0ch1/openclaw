@@ -32,6 +32,7 @@ type ModelProviderLocalCost = {
   totalCost: number;
   totalTokens: number;
   sessionCount: number;
+  missingCostEntries: number;
 };
 
 export type ModelProviderLogoutTarget = {
@@ -62,6 +63,8 @@ export type ModelProviderCard = {
   hasConfigApiKey: boolean;
   modelCount: number;
   availableModelCount: number;
+  runtimeAvailableModelCount: number;
+  runtimeLabels: string[];
   catalogStatus?: ModelCatalogProviderOutcome["status"];
   /** Live provider-reported usage (quota windows, billing, cost history). */
   usage?: ProviderUsageSnapshot;
@@ -128,6 +131,8 @@ function ensureDraft(drafts: CardDraft[], id: string, displayName: string): Card
       hasConfigApiKey: false,
       modelCount: 0,
       availableModelCount: 0,
+      runtimeAvailableModelCount: 0,
+      runtimeLabels: [],
     },
     hasAuthRow: false,
     hasUsageSnapshot: false,
@@ -239,6 +244,14 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
     draft.card.modelCount += 1;
     if (entry.available === true) {
       draft.card.availableModelCount += 1;
+      const runtimeId = normalizeProviderId(entry.agentRuntime?.id ?? "");
+      if (runtimeId && runtimeId !== "auto" && runtimeId !== "openclaw") {
+        draft.card.runtimeAvailableModelCount += 1;
+        const label = providerDisplayLabel(runtimeId);
+        if (!draft.card.runtimeLabels.includes(label)) {
+          draft.card.runtimeLabels.push(label);
+        }
+      }
     }
   }
 
@@ -321,6 +334,7 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
       totalCost: entry.totals.totalCost,
       totalTokens: entry.totals.totalTokens,
       sessionCount: entry.count,
+      missingCostEntries: entry.totals.missingCostEntries,
     };
     const current = draft.card.localCost;
     draft.card.localCost = current
@@ -328,6 +342,7 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
           totalCost: current.totalCost + addition.totalCost,
           totalTokens: current.totalTokens + addition.totalTokens,
           sessionCount: current.sessionCount + addition.sessionCount,
+          missingCostEntries: current.missingCostEntries + addition.missingCostEntries,
         }
       : addition;
   }

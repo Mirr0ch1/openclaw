@@ -134,11 +134,17 @@ function renderLocalCost(card: ModelProviderCard, costDays: number) {
   if (!cost || (cost.totalTokens === 0 && cost.totalCost === 0)) {
     return nothing;
   }
+  const costUnavailable = cost.totalCost === 0 && cost.missingCostEntries > 0;
+  const incompleteCost = cost.totalCost > 0 && cost.missingCostEntries > 0;
   return html`
     <div class="model-providers__local-cost">
       <div class="provider-usage-billing-row">
         <span>${t("modelProviders.localCost", { days: String(costDays) })}</span>
-        <strong>${formatCost(cost.totalCost)}</strong>
+        <strong title=${incompleteCost ? t("modelProviders.costIncomplete") : nothing}
+          >${costUnavailable
+            ? t("modelProviders.costUnavailable")
+            : formatCost(cost.totalCost)}</strong
+        >
       </div>
       <div class="model-providers__local-cost-detail">
         ${t("modelProviders.localCostDetail", {
@@ -156,10 +162,24 @@ function renderCredentialSummary(card: ModelProviderCard, agentLabel: string) {
   const apiProfileCount = card.profiles.filter((profile) => profile.type === "api_key").length;
   const parts = [];
   if (oauthCount > 0) {
-    parts.push(t("modelProviders.credentials.oauth", { count: String(oauthCount) }));
+    parts.push(
+      t(
+        oauthCount === 1
+          ? "modelProviders.credentials.oauthOne"
+          : "modelProviders.credentials.oauthMany",
+        { count: String(oauthCount) },
+      ),
+    );
   }
   if (tokenCount > 0) {
-    parts.push(t("modelProviders.credentials.tokenProfiles", { count: String(tokenCount) }));
+    parts.push(
+      t(
+        tokenCount === 1
+          ? "modelProviders.credentials.tokenOne"
+          : "modelProviders.credentials.tokenMany",
+        { count: String(tokenCount) },
+      ),
+    );
   }
   if (card.apiKey?.source === "config") {
     parts.push(t("modelProviders.credentials.configKey"));
@@ -170,14 +190,27 @@ function renderCredentialSummary(card: ModelProviderCard, agentLabel: string) {
         : t("modelProviders.credentials.envKey"),
     );
   } else if (apiProfileCount > 0) {
-    parts.push(t("modelProviders.credentials.profileKey", { count: String(apiProfileCount) }));
+    parts.push(
+      t(
+        apiProfileCount === 1
+          ? "modelProviders.credentials.profileKeyOne"
+          : "modelProviders.credentials.profileKeyMany",
+        { count: String(apiProfileCount) },
+      ),
+    );
   }
+  if (parts.length === 0 && card.runtimeLabels.length === 0) {
+    return nothing;
+  }
+  const runtimeOnly = parts.length === 0;
   return html`
     <div class="model-providers__credentials">
-      <span>${t("modelProviders.credentials.label", { agent: agentLabel })}</span>
-      <strong
-        >${parts.length > 0 ? parts.join(" · ") : t("modelProviders.credentials.none")}</strong
+      <span
+        >${runtimeOnly
+          ? t("modelProviders.credentials.runtime")
+          : t("modelProviders.credentials.label", { agent: agentLabel })}</span
       >
+      <strong>${runtimeOnly ? card.runtimeLabels.join(" · ") : parts.join(" · ")}</strong>
     </div>
   `;
 }
@@ -378,6 +411,10 @@ function renderProviderActions(card: ModelProviderCard, props: ModelProvidersVie
 function renderProviderRow(card: ModelProviderCard, props: ModelProvidersViewProps) {
   const models = modelsText(card);
   const message = props.messages[`key:${card.id}`] ?? props.messages[card.id];
+  const hasUsage = Boolean(
+    card.usage ||
+    (card.localCost && (card.localCost.totalTokens > 0 || card.localCost.totalCost > 0)),
+  );
   return html`
     <div
       class="settings-row settings-row--stacked model-providers__row"
@@ -399,18 +436,18 @@ function renderProviderRow(card: ModelProviderCard, props: ModelProvidersViewPro
         </div>
       </div>
       ${renderCredentialSummary(card, props.credentialAgentLabel)}
-      <div
-        class="model-providers__global-metrics"
-        aria-busy=${props.supplementalLoading ? "true" : "false"}
-      >
-        <div class="model-providers__global-metrics-title">${t("modelProviders.globalUsage")}</div>
-        ${card.usage
-          ? renderProviderUsageDetails(card.usage)
-          : html`<div class="model-providers__no-stats">
-              ${t(props.supplementalLoading ? "common.loading" : "modelProviders.noStats")}
-            </div>`}
-        ${renderLocalCost(card, props.costDays)}
-      </div>
+      ${hasUsage
+        ? html`<div
+            class="model-providers__global-metrics"
+            aria-busy=${props.supplementalLoading ? "true" : "false"}
+          >
+            <div class="model-providers__global-metrics-title">
+              ${t("modelProviders.globalUsage")}
+            </div>
+            ${card.usage ? renderProviderUsageDetails(card.usage) : nothing}
+            ${renderLocalCost(card, props.costDays)}
+          </div>`
+        : nothing}
       ${renderProviderActions(card, props)} ${renderKeyEditor(card, props)}
       ${renderProbeResult(props.probeResults[card.id])} ${renderMutationMessage(message)}
     </div>

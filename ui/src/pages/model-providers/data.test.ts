@@ -47,13 +47,23 @@ describe("buildModelProviderCards", () => {
     const cards = buildModelProviderCards({
       ...EMPTY_INPUT,
       models: [
-        catalogEntry({ provider: "anthropic", id: "anthropic/a", available: true }),
+        catalogEntry({
+          provider: "anthropic",
+          id: "anthropic/a",
+          available: true,
+          agentRuntime: { id: "claude-cli", source: "model" },
+        }),
         catalogEntry({ provider: "anthropic", id: "anthropic/b" }),
         catalogEntry({ provider: "mistral", id: "mistral/large" }),
       ],
     });
     expect(cards.map((card) => card.id)).toEqual(["anthropic", "mistral"]);
-    expect(cards[0]).toMatchObject({ modelCount: 2, availableModelCount: 1 });
+    expect(cards[0]).toMatchObject({
+      modelCount: 2,
+      availableModelCount: 1,
+      runtimeAvailableModelCount: 1,
+      runtimeLabels: ["Claude CLI"],
+    });
     // A configured API-key provider with a broken credential still shows up
     // so the page can report its unavailable state.
     expect(cards[1]).toMatchObject({ modelCount: 1, availableModelCount: 0 });
@@ -328,6 +338,7 @@ describe("buildModelProviderCards", () => {
       totalCost: 0.42,
       totalTokens: 150,
       sessionCount: 3,
+      missingCostEntries: 0,
     });
   });
 

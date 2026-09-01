@@ -3,125 +3,17 @@
 import { nothing, render } from "lit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { i18n } from "../../i18n/index.ts";
-import type { ModelProviderCard } from "./data.ts";
+import {
+  button,
+  card,
+  mount,
+  props,
+  selectSegment,
+  settingsRow,
+  text,
+  type SegmentedGroup,
+} from "./view.test-support.ts";
 import { renderModelProviders } from "./view.ts";
-
-type ModelProvidersViewProps = Parameters<typeof renderModelProviders>[0];
-type SegmentedGroup = HTMLElement & { disabled: boolean; value: string };
-
-function card(overrides: Partial<ModelProviderCard> = {}): ModelProviderCard {
-  return {
-    id: "openai",
-    displayName: "OpenAI",
-    profiles: [],
-    credentialProviderIds: ["openai"],
-    logoutTargets: [],
-    accessOptions: [],
-    hasConfigApiKey: false,
-    modelCount: 1,
-    availableModelCount: 1,
-    apiKey: { source: "env", envVar: "OPENAI_API_KEY" },
-    ...overrides,
-  };
-}
-
-function props(overrides: Partial<ModelProvidersViewProps> = {}): ModelProvidersViewProps {
-  return {
-    connected: true,
-    loading: false,
-    refreshing: false,
-    error: null,
-    providerUsageFailed: false,
-    supplementalLoading: false,
-    updatedAt: 1,
-    costDays: 30,
-    credentialAgentLabel: "Writer",
-    cards: [card()],
-    configuredModels: [{ id: "openai/gpt-5", provider: "openai", name: "GPT-5", available: true }],
-    defaultModels: { primary: "openai/gpt-5", fallbacks: [], utilityModel: null },
-    thinkingLevel: "off",
-    thinkingOverridden: true,
-    fastMode: false,
-    fastModeOverridden: true,
-    configBusy: false,
-    quickAddSupported: true,
-    unconfiguredProviders: [{ id: "anthropic", displayName: "Anthropic" }],
-    canMutate: true,
-    mutationBlockedReason: null,
-    providerUsageStalled: false,
-    probeAvailable: true,
-    busy: {},
-    messages: {},
-    probeResults: {},
-    keyEditorProvider: null,
-    keyDraft: "",
-    pendingLogoutProvider: null,
-    providerLoginBusy: false,
-    addProviderOpen: false,
-    addProviderId: "",
-    addProviderKey: "",
-    onRefresh: () => undefined,
-    onOpenKeyEditor: () => undefined,
-    onCloseKeyEditor: () => undefined,
-    onKeyDraftChange: () => undefined,
-    onSaveKey: () => undefined,
-    onRemoveKey: () => undefined,
-    onProbe: () => undefined,
-    onRequestLogout: () => undefined,
-    onCancelLogout: () => undefined,
-    onLogout: () => undefined,
-    onLogin: () => undefined,
-    onAddProviderToggle: () => undefined,
-    onAddProviderIdChange: () => undefined,
-    onAddProviderKeyChange: () => undefined,
-    onAddProvider: () => undefined,
-    onPrimaryChange: () => undefined,
-    onFallbackChange: () => undefined,
-    onUtilityChange: () => undefined,
-    onThinkingChange: () => undefined,
-    onThinkingReset: () => undefined,
-    onFastModeChange: () => undefined,
-    onFastModeReset: () => undefined,
-    onOpenModelSetup: () => undefined,
-    ...overrides,
-  };
-}
-
-function mount(viewProps: ModelProvidersViewProps): HTMLDivElement {
-  const container = document.createElement("div");
-  document.body.append(container);
-  render(renderModelProviders(viewProps), container);
-  return container;
-}
-
-function text(element: Element | null): string {
-  return element?.textContent?.replace(/\s+/gu, " ").trim() ?? "";
-}
-
-function button(container: Element, label: string): HTMLButtonElement | undefined {
-  return [...container.querySelectorAll<HTMLButtonElement>("button")].find((entry) =>
-    text(entry).includes(label),
-  );
-}
-
-function settingsRow(container: Element, label: string): HTMLElement {
-  const match = [...container.querySelectorAll<HTMLElement>(".settings-row")].find(
-    (candidate) =>
-      text(
-        candidate.querySelector(".model-providers__label-with-help > span:first-child") ??
-          candidate.querySelector(".settings-row__title"),
-      ) === label,
-  );
-  if (!match) {
-    throw new Error(`Missing settings row: ${label}`);
-  }
-  return match;
-}
-
-function selectSegment(group: SegmentedGroup, value: string) {
-  group.value = value;
-  group.dispatchEvent(new Event("change", { bubbles: true }));
-}
 
 describe("renderModelProviders", () => {
   it("surfaces a provider-usage failure on the provider list", () => {
@@ -603,8 +495,8 @@ describe("renderModelProviders", () => {
       }),
     );
     const provider = container.querySelector('[data-provider-id="openai"]');
-    expect(text(provider)).toContain("Credentials for Writer");
-    expect(text(provider)).toContain("Global usage and cost");
+    expect(text(provider)).toContain("Access for Writer");
+    expect(text(provider)).not.toContain("Usage and cost");
     expect(text(provider)).toContain("API key from environment (OPENAI_API_KEY)");
     expect(text(provider)).toContain("Connected");
     expect(text(provider)).toContain("145 ms");
@@ -725,21 +617,26 @@ describe("renderModelProviders", () => {
     expect(container.querySelector(".model-providers__defaults")).not.toBeNull();
   });
 
-  it("labels provider usage and session cost as global", () => {
+  it("labels provider usage and session cost by scope", () => {
     const container = mount(
       props({
         cards: [
           card({
-            localCost: { totalCost: 12, totalTokens: 1_000, sessionCount: 2 },
+            localCost: {
+              totalCost: 12,
+              totalTokens: 1_000,
+              sessionCount: 2,
+              missingCostEntries: 0,
+            },
           }),
         ],
       }),
     );
 
     const provider = container.querySelector('[data-provider-id="openai"]');
-    expect(text(provider)).toContain("Credentials for Writer");
-    expect(text(provider)).toContain("Global usage and cost");
-    expect(text(provider)).toContain("Global session spend · 30d");
+    expect(text(provider)).toContain("Access for Writer");
+    expect(text(provider)).toContain("Usage and cost · all agents");
+    expect(text(provider)).toContain("Session spend · last 30 days");
   });
 
   it("preserves complete graphemes in custom provider fallback icons", () => {
@@ -775,7 +672,7 @@ describe("renderModelProviders", () => {
 
     const provider = container.querySelector('[data-provider-id="openai"]');
     expect(text(provider)).not.toContain("API key set in config");
-    expect(text(provider)).toContain("Not configured");
+    expect(text(provider)).not.toContain("Access for Writer");
   });
 
   it("renders mixed credential probes as connected with warnings", () => {
