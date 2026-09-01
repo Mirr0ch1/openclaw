@@ -497,6 +497,15 @@ This is the default path for remote gateways. Automatic host fallback is allowed
 only before the selected node handles a request. Once an action reaches the node,
 its follow-up snapshot or settings stay on that node instead of switching browsers.
 
+Standalone runs such as `openclaw agent exec` use the host browser when no
+Gateway or node route is selected. They do not need Gateway credentials for
+local browser control. Sandbox routing and host-control restrictions still apply.
+To discover browser nodes through a local Gateway from a standalone run, set
+`gateway.nodes.browser.mode="auto"`. An explicit node target or pin, remote
+Gateway configuration, or `OPENCLAW_GATEWAY_URL` also keeps node discovery
+enabled. Explicit node targets and pins retain connection and authentication
+errors.
+
 Notes:
 
 - The node host exposes its local browser control server via a **proxy command**.

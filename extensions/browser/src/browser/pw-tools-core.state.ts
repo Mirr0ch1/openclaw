@@ -41,43 +41,60 @@ function resolvePageEmulationSession(page: Page, state: PageState): Promise<CDPS
 async function withPageEmulationCdpClient<T>(params: {
   page: Page;
   state: PageState;
-  run: (send: PageCdpSend) => Promise<T>;
+  run: (send: PageCdpSend, session: CDPSession) => Promise<T>;
 }): Promise<T> {
   const session = await resolvePageEmulationSession(params.page, params.state);
-  return await params.run((method, values) =>
-    (
-      session.send as unknown as (
-        method: string,
-        values?: Record<string, unknown>,
-      ) => Promise<unknown>
-    )(method, values),
+  return await params.run(
+    (method, values) =>
+      (
+        session.send as unknown as (
+          method: string,
+          values?: Record<string, unknown>,
+        ) => Promise<unknown>
+      )(method, values),
+    session,
   );
 }
 
-async function runDeviceTransition(params: {
-  page: Page;
+export async function setViewportSizeOnPage(page: Page, state: PageState, viewport: DeviceSize) {
+  const previous = state.emulation?.metricsOwner ? page.viewportSize() : null;
+  await page.setViewportSize(viewport);
+  // Playwright skips identical metrics. Record a changed viewport immediately,
+  // even when a later device override fails and leaves the descriptor incomplete.
+  if (
+    state.emulation &&
+    (previous?.width !== viewport.width || previous?.height !== viewport.height)
+  ) {
+    delete state.emulation.metricsOwner;
+  }
+}
+
+export async function runPageEmulationTransition<T>(params: {
   state: PageState;
   signal?: AbortSignal;
-  run: () => Promise<void>;
-}): Promise<void> {
+  run: () => Promise<T>;
+}): Promise<T> {
   params.signal?.throwIfAborted();
   const emulation = resolvePageEmulationState(params.state);
-  const previous = emulation.deviceTransitionTail ?? Promise.resolve();
+  const previous = emulation.transitionTail ?? Promise.resolve();
   const transition = previous
     .catch(() => {})
     .then(async () => {
       params.signal?.throwIfAborted();
-      // Once admitted, finish the whole descriptor. Aborting between overrides would
-      // leave viewport, user agent, metrics, and touch state from different devices.
-      await params.run();
+      // Device changes and captures share one queue: neither may observe or
+      // restore only part of another operation's viewport, metrics, or touch state.
+      return await params.run();
     });
-  const tail = transition.catch(() => {});
-  emulation.deviceTransitionTail = tail;
+  const tail = transition.then(
+    () => {},
+    () => {},
+  );
+  emulation.transitionTail = tail;
   try {
-    await transition;
+    return await transition;
   } finally {
-    if (emulation.deviceTransitionTail === tail) {
-      delete emulation.deviceTransitionTail;
+    if (emulation.transitionTail === tail) {
+      delete emulation.transitionTail;
     }
   }
 }
@@ -257,8 +274,7 @@ export async function setDeviceViaPlaywright(opts: {
     throw new Error(`Unknown device "${name}".`);
   }
 
-  await runDeviceTransition({
-    page,
+  await runPageEmulationTransition({
     state: pageState,
     signal: opts.signal,
     run: async () => {
@@ -267,15 +283,12 @@ export async function setDeviceViaPlaywright(opts: {
 
       // Keep Playwright's page model aligned before applying the descriptor fields
       // that its public setViewportSize API cannot express on an attached context.
-      await page.setViewportSize({
-        width: descriptor.viewport.width,
-        height: descriptor.viewport.height,
-      });
+      await setViewportSizeOnPage(page, pageState, { ...descriptor.viewport });
 
       await withPageEmulationCdpClient({
         page,
         state: pageState,
-        run: async (send) => {
+        run: async (send, session) => {
           await send("Emulation.setUserAgentOverride", {
             userAgent: descriptor.userAgent,
           });
@@ -291,9 +304,12 @@ export async function setDeviceViaPlaywright(opts: {
                 ? { angle: 0, type: "portraitPrimary" }
                 : { angle: descriptor.isMobile ? 90 : 0, type: "landscapePrimary" },
           });
+          const emulation = resolvePageEmulationState(pageState);
+          emulation.metricsOwner = { session, viewport: { ...descriptor.viewport } };
           await send("Emulation.setTouchEmulationEnabled", {
             enabled: descriptor.hasTouch,
           });
+          emulation.touch = { session, enabled: descriptor.hasTouch };
         },
       });
     },

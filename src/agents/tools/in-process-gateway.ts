@@ -114,6 +114,13 @@ export function hasInProcessGatewayToolContext(): boolean {
   return resolveGatewayContext ? Boolean(resolveGatewayContext()) : hasInProcessGatewayContext();
 }
 
+/** Whether Gateway routing belongs to this caller or the hosting process. */
+export function hasGatewayToolRoutingContext(): boolean {
+  // A retired binding still owns routing: dispatch must reject it instead of
+  // letting optional Gateway-backed tools switch to standalone host execution.
+  return Boolean(callerGatewayContextResolver()) || hasInProcessGatewayContext();
+}
+
 export function getInProcessGatewayToolContext(
   explicitResolver?: GatewayContextResolver,
 ): GatewayRequestContext | undefined {

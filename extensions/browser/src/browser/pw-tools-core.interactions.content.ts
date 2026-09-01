@@ -2,8 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { detectMime } from "openclaw/plugin-sdk/media-mime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
-import type { FileChooser, Page } from "playwright-core";
+import { withTimeout } from "openclaw/plugin-sdk/text-utility-runtime";
+import type { FileChooser, Locator, Page } from "playwright-core";
 import { ACT_MAX_WAIT_TIME_MS, resolveActWaitTimeoutMs } from "./act-policy.js";
+import { DEFAULT_BROWSER_SCREENSHOT_TIMEOUT_MS } from "./constants.js";
 import { normalizeBrowserEvaluateFunctionSource } from "./evaluate-source.js";
 import { resolveStrictExistingUploadPaths } from "./paths.js";
 import {
@@ -25,6 +27,7 @@ import {
   throwIfInteractionAborted,
   toFriendlyInteractionError,
 } from "./pw-tools-core.interactions.navigation.js";
+import { runPageEmulationTransition } from "./pw-tools-core.state.js";
 import {
   ANNOTATION_MAX_LABELS_DEFAULT,
   type AnnotationItem,
@@ -229,59 +232,143 @@ export async function waitForViaPlaywright(
   }
 }
 
-export async function takeScreenshotViaPlaywright(
-  opts: InteractionTargetOptions & {
-    ref?: string;
-    element?: string;
-    fullPage?: boolean;
-    type?: "png" | "jpeg";
-    timeoutMs?: number;
-  },
-): Promise<{ buffer: Buffer }> {
-  const page = await getPageForTargetId(opts);
-  ensurePageState(page);
-  restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
-  const type = opts.type ?? "png";
-  const elementLocator = opts.ref
-    ? refLocator(page, opts.ref)
-    : opts.element
-      ? page.locator(opts.element).first()
-      : undefined;
-  if (elementLocator) {
-    if (opts.fullPage) {
-      throw new Error("fullPage is not supported for element screenshots");
-    }
-    const buffer = await elementLocator.screenshot({ type, timeout: opts.timeoutMs });
-    return { buffer };
-  }
-  const buffer = await page.screenshot({
-    type,
-    fullPage: Boolean(opts.fullPage),
-    timeout: opts.timeoutMs,
-  });
-  return { buffer };
+type ScreenshotOptions = {
+  fullPage?: boolean;
+  type?: "png" | "jpeg";
+  timeoutMs?: number;
+  signal?: AbortSignal;
+};
+
+async function runScreenshotOperation<T>(
+  page: Page,
+  opts: ScreenshotOptions,
+  run: () => Promise<T>,
+) {
+  const controller = new AbortController();
+  const signal = opts.signal
+    ? AbortSignal.any([opts.signal, controller.signal])
+    : controller.signal;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_BROWSER_SCREENSHOT_TIMEOUT_MS;
+  return await withTimeout(
+    runPageEmulationTransition({ state: ensurePageState(page), signal, run }),
+    timeoutMs,
+    {
+      createError: () => {
+        const error = new Error(`Screenshot via Playwright timed out after ${timeoutMs}ms`);
+        controller.abort(error);
+        return error;
+      },
+    },
+  );
 }
 
-export async function screenshotWithLabelsViaPlaywright(
-  opts: InteractionTargetOptions & {
+function screenshotLocator(page: Page, ref?: string, element?: string): Locator | undefined {
+  return ref ? refLocator(page, ref) : element ? page.locator(element).first() : undefined;
+}
+
+async function capturePageScreenshot(page: Page, opts: ScreenshotOptions, locator?: Locator) {
+  if (locator && opts.fullPage) {
+    throw new Error("fullPage is not supported for element screenshots");
+  }
+  const type = opts.type ?? "png";
+  const emulation = ensurePageState(page).emulation;
+  const owner = emulation?.metricsOwner;
+  try {
+    if (!owner) {
+      return await (locator
+        ? locator.screenshot({ type, timeout: opts.timeoutMs })
+        : page.screenshot({ type, fullPage: Boolean(opts.fullPage), timeout: opts.timeoutMs }));
+    }
+
+    await locator?.scrollIntoViewIfNeeded({ timeout: opts.timeoutMs });
+    const box = locator ? await locator.boundingBox() : undefined;
+    if (locator && (!box || !box.width || !box.height)) {
+      throw new Error("Cannot take a screenshot of an element that is not visible or has no size");
+    }
+    const metrics = await owner.session.send("Page.getLayoutMetrics");
+    const visual = metrics.visualViewport;
+    let clip = { ...metrics.cssContentSize, scale: 1 };
+    if (box) {
+      const x = Math.floor(box.x + metrics.cssLayoutViewport.pageX);
+      const y = Math.floor(box.y + metrics.cssLayoutViewport.pageY);
+      clip = {
+        x,
+        y,
+        width: Math.ceil(box.x + metrics.cssLayoutViewport.pageX + box.width) - x,
+        height: Math.ceil(box.y + metrics.cssLayoutViewport.pageY + box.height) - y,
+        scale: 1,
+      };
+    } else if (!opts.fullPage) {
+      clip = {
+        x: visual.pageX,
+        y: visual.pageY,
+        width: Math.ceil(owner.viewport.width / visual.scale),
+        height: Math.ceil(owner.viewport.height / visual.scale),
+        scale: visual.scale,
+      };
+    }
+    const captureBeyondViewport = Boolean(
+      (opts.fullPage || locator) &&
+      (clip.width > owner.viewport.width || clip.height > owner.viewport.height),
+    );
+    // Chromium restores the capturing session's metrics. A new session or
+    // Playwright's own session would replace this device owner's DPR and screen.
+    const result = await owner.session.send("Page.captureScreenshot", {
+      format: type,
+      clip,
+      captureBeyondViewport,
+    });
+    return Buffer.from(result.data, "base64");
+  } finally {
+    if (emulation?.touch) {
+      // Full-page and oversized element captures can reset touch emulation.
+      // Both screenshot backends restore the value set by this page's owner.
+      await emulation.touch.session.send("Emulation.setTouchEmulationEnabled", {
+        enabled: emulation.touch.enabled,
+      });
+    }
+  }
+}
+
+export async function takeScreenshotViaPlaywright(
+  opts: InteractionTargetOptions & ScreenshotOptions & { ref?: string; element?: string },
+): Promise<{ buffer: Buffer }> {
+  const page = await getPageForTargetId(opts);
+  return await runScreenshotOperation(page, opts, async () => {
+    restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
+    return {
+      buffer: await capturePageScreenshot(
+        page,
+        opts,
+        screenshotLocator(page, opts.ref, opts.element),
+      ),
+    };
+  });
+}
+
+type LabeledScreenshotOptions = InteractionTargetOptions &
+  ScreenshotOptions & {
     refs: Record<string, { role: string; name?: string; nth?: number }>;
     maxLabels?: number;
-    type?: "png" | "jpeg";
-    timeoutMs?: number;
-    fullPage?: boolean;
     ref?: string;
     element?: string;
-  },
+  };
+
+export async function screenshotWithLabelsViaPlaywright(opts: LabeledScreenshotOptions) {
+  const page = await getPageForTargetId(opts);
+  return await runScreenshotOperation(page, opts, () => screenshotWithLabelsOnPage(page, opts));
+}
+
+async function screenshotWithLabelsOnPage(
+  page: Page,
+  opts: LabeledScreenshotOptions,
 ): Promise<{
   buffer: Buffer;
   labels: number;
   skipped: number;
   annotations: AnnotationItem[];
 }> {
-  const page = await getPageForTargetId(opts);
-  ensurePageState(page);
   restoreRoleRefsForTarget({ cdpUrl: opts.cdpUrl, targetId: opts.targetId, page });
-  const type = opts.type ?? "png";
   const maxLabels =
     typeof opts.maxLabels === "number" && Number.isFinite(opts.maxLabels)
       ? Math.max(1, Math.floor(opts.maxLabels))
@@ -289,6 +376,7 @@ export async function screenshotWithLabelsViaPlaywright(
 
   const refKey = normalizeOptionalString(opts.ref) ?? undefined;
   const elementSelector = normalizeOptionalString(opts.element) ?? undefined;
+  const locator = screenshotLocator(page, refKey, elementSelector);
   const space: CoordinateSpace = opts.fullPage
     ? "fullpage"
     : refKey || elementSelector
@@ -309,7 +397,7 @@ export async function screenshotWithLabelsViaPlaywright(
 
   let elementRect: { x: number; y: number; width: number; height: number } | undefined;
   if (space === "element") {
-    const box = await resolveElementBoundingBoxForLabels(page, refKey, elementSelector);
+    const box = await locator?.boundingBox().catch(() => null);
     if (!box) {
       throw new Error(
         `screenshotWithLabelsViaPlaywright: element not found for ${
@@ -368,20 +456,7 @@ export async function screenshotWithLabelsViaPlaywright(
       const captureY = space === "element" ? elementRect?.y : space === "viewport" ? scroll.y : 0;
       await page.evaluate(buildOverlayInjectionScript({ items: plan.overlayItems, captureY }));
     }
-    const buffer =
-      space === "element"
-        ? await captureElementScreenshotForLabels(
-            page,
-            refKey,
-            elementSelector,
-            type,
-            opts.timeoutMs,
-          )
-        : await page.screenshot({
-            type,
-            fullPage: Boolean(opts.fullPage),
-            timeout: opts.timeoutMs,
-          });
+    const buffer = await capturePageScreenshot(page, opts, locator);
     return {
       // `labels` reports overlay boxes actually drawn on the captured image
       // (in-viewport, within budget); off-viewport refs are surfaced via
@@ -394,44 +469,6 @@ export async function screenshotWithLabelsViaPlaywright(
   } finally {
     await page.evaluate(buildOverlayClearScript()).catch(() => {});
   }
-}
-
-async function resolveElementBoundingBoxForLabels(
-  page: Page,
-  refKey: string | undefined,
-  cssSelector: string | undefined,
-): Promise<{ x: number; y: number; width: number; height: number } | null> {
-  if (refKey) {
-    try {
-      return await refLocator(page, refKey).boundingBox();
-    } catch {
-      return null;
-    }
-  }
-  if (cssSelector) {
-    try {
-      return await page.locator(cssSelector).first().boundingBox();
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-async function captureElementScreenshotForLabels(
-  page: Page,
-  refKey: string | undefined,
-  cssSelector: string | undefined,
-  type: "png" | "jpeg",
-  timeoutMs: number | undefined,
-): Promise<Buffer> {
-  if (refKey) {
-    return await refLocator(page, refKey).screenshot({ type, timeout: timeoutMs });
-  }
-  if (cssSelector) {
-    return await page.locator(cssSelector).first().screenshot({ type, timeout: timeoutMs });
-  }
-  throw new Error("captureElementScreenshotForLabels: requires refKey or cssSelector");
 }
 
 export async function setFileChooserFilesViaPlaywright(

@@ -333,7 +333,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +2: focused provider-auth routes for shipped auth ordering and provider-map lookup.
       // +2: bounded display-only error diagnostic attachment and rendering.
       // +1: shared presentation delivery policy for core and channel plugins.
-      4362,
+      // +1: caller/process Gateway routing ownership for standalone-capable tools.
+      4363,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -443,7 +444,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +2: focused provider-auth routes for shipped auth ordering and provider-map lookup.
       // +2: bounded display-only error diagnostic attachment and rendering.
       // +1: shared presentation delivery policy for core and channel plugins.
-      2597,
+      // +1: caller/process Gateway routing ownership for standalone-capable tools.
+      2598,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(

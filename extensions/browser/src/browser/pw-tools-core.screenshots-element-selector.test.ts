@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_UPLOAD_DIR } from "./paths.js";
+import type { PageState } from "./pw-session-contracts.js";
 import {
   getPwToolsCoreSessionMocks,
   installPwToolsCoreTestHooks,
@@ -103,6 +104,67 @@ describe("pw-tools-core", () => {
       }),
     ).rejects.toThrow(/fullPage is not supported/i);
   });
+  it("does not start a queued screenshot after its timeout", async () => {
+    let release!: () => void;
+    const previous = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const state = sessionMocks.ensurePageState() as unknown as PageState;
+    state.emulation = { transitionTail: previous };
+    const screenshot = vi.fn(async () => Buffer.from("late"));
+    setPwToolsCoreCurrentPage({ screenshot });
+
+    try {
+      await expect(
+        mod.takeScreenshotViaPlaywright({
+          cdpUrl: "http://127.0.0.1:18792",
+          targetId: "T1",
+          timeoutMs: 10,
+        }),
+      ).rejects.toThrow("timed out");
+      const pending = state.emulation.transitionTail;
+      release();
+      await pending;
+      expect(screenshot).not.toHaveBeenCalled();
+      expect(sessionMocks.restoreRoleRefsForTarget).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+  });
+  it.each(["screenshot", "labels", "resize"] as const)(
+    "skips a cancelled queued %s",
+    async (kind) => {
+      let release!: () => void;
+      const previous = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const state = sessionMocks.ensurePageState() as unknown as PageState;
+      state.emulation = { transitionTail: previous };
+      const page = { screenshot: vi.fn(), evaluate: vi.fn(), setViewportSize: vi.fn() };
+      setPwToolsCoreCurrentPage(page);
+      const controller = new AbortController();
+      const opts = { cdpUrl: "http://127.0.0.1:18792", targetId: "T1", signal: controller.signal };
+      const { resizeViewportViaPlaywright } = await import("./pw-tools-core.snapshot.js");
+      const pending =
+        kind === "resize"
+          ? resizeViewportViaPlaywright({ ...opts, width: 1280, height: 720 })
+          : kind === "labels"
+            ? mod.screenshotWithLabelsViaPlaywright({ ...opts, refs: {} })
+            : mod.takeScreenshotViaPlaywright(opts);
+      const rejected = expect(pending).rejects.toThrow("request closed");
+      try {
+        await vi.waitFor(() => expect(state.emulation?.transitionTail).not.toBe(previous));
+        controller.abort(new Error("request closed"));
+        release();
+        await rejected;
+        expect(page.screenshot).not.toHaveBeenCalled();
+        expect(page.evaluate).not.toHaveBeenCalled();
+        expect(page.setViewportSize).not.toHaveBeenCalled();
+      } finally {
+        release();
+      }
+    },
+  );
   it("arms the next file chooser and sets files (default timeout)", async () => {
     const uploadPath = path.join(DEFAULT_UPLOAD_DIR, `vitest-upload-${crypto.randomUUID()}.txt`);
     await fs.mkdir(path.dirname(uploadPath), { recursive: true });
