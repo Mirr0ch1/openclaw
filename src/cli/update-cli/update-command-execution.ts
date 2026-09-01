@@ -1,5 +1,9 @@
 import type { DevUpdateTarget } from "../../infra/update-dev-target.js";
-import type { ResolvedGlobalInstallTarget } from "../../infra/update-global.js";
+import {
+  verifyPackageUpdateRecovery,
+  type ResolvedGlobalInstallTarget,
+} from "../../infra/update-global.js";
+import { readCurrentGitUpdateRecovery } from "../../infra/update-runner-git-recovery.js";
 import type { UpdateRunResult } from "../../infra/update-runner.js";
 import { defaultRuntime } from "../../runtime.js";
 import type { OpenClawSchemaVersions } from "../../state/openclaw-schema-versions.js";
@@ -24,9 +28,7 @@ import {
 import { runPackageInstallUpdate } from "./update-command-package.js";
 import type { ManagedServiceRootRedirect } from "./update-command-service-plan.js";
 import {
-  createAggregateErrorWithCause,
   maybeRestartServiceAfterFailedMutableUpdate,
-  maybeResumeWindowsTaskAutoStartAfterPackageUpdate,
   maybeStopManagedServiceBeforeMutableUpdate,
   resolvePreparedGatewayUpdatePolicy,
   shouldBlockMutableUpdateFromGatewayServiceEnv,
@@ -70,8 +72,13 @@ export async function executeMutableUpdate(params: {
 }): Promise<MutableUpdateExecutionResult | null> {
   let preManagedServiceStop: PreManagedServiceStop | undefined;
   let ownedManagedUpdateContext: OwnedManagedUpdateContext | undefined;
-  const recoverStoppedService = () =>
+  const originalRecovery = () =>
+    params.installKind === "git"
+      ? readCurrentGitUpdateRecovery(params.root)
+      : verifyPackageUpdateRecovery(params.root);
+  const recoverStoppedService = async () =>
     maybeRestartServiceAfterFailedMutableUpdate({
+      recovery: await originalRecovery(),
       preManagedServiceStop,
       jsonMode: Boolean(params.opts.json),
       nodeRunner: params.packageUpdateNodeRunner,
@@ -199,6 +206,7 @@ export async function executeMutableUpdate(params: {
         formatSchemaRefusalLines(postStopPackageSchemaPreflight).join("\n"),
       );
     }
+    preManagedServiceStop?.windowsTaskAutoStartRecovery?.beginMutation();
     result =
       params.updateInstallKind === "package"
         ? await runPackageInstallUpdate({
@@ -256,7 +264,7 @@ export async function executeMutableUpdate(params: {
               : (params.packageInstallTarget?.manager ?? "unknown"),
           root: params.root,
           reason: err.reason,
-          recovery: { serviceRestartSafe: true },
+          recovery: await originalRecovery(),
           steps: [
             {
               name: err.reason,
@@ -289,22 +297,11 @@ export async function executeMutableUpdate(params: {
       steps: [],
       durationMs: Date.now() - params.startedAt,
     };
-    try {
-      await maybeResumeWindowsTaskAutoStartAfterPackageUpdate(preManagedServiceStop);
-    } catch (resumeErr) {
-      params.recoveryState.windowsTaskAutoStartRecovery?.complete();
-      params.recoveryState.windowsTaskAutoStartRecovery = undefined;
-      throw createAggregateErrorWithCause(
-        [err, resumeErr],
-        `Update failed (${String(err)}) and Windows Scheduled Task autostart could not be restored (${String(resumeErr)})`,
-        err,
-      );
-    }
-    // Only the mutation owner can prove rollback. Unexpected exceptions cannot
-    // authorize restarting a partially replaced installation.
+    params.recoveryState.windowsTaskAutoStartRecovery?.complete(false);
     defaultRuntime.error(
-      "Update recovery is unverified. Inspect `openclaw gateway status --deep` and repair the installation before restarting.",
+      "Update interrupted without a verified installation result. A Gateway stopped for this update remains stopped; inspect `openclaw doctor` and `openclaw gateway status --deep` before restarting.",
     );
+
     throw err;
   }
 

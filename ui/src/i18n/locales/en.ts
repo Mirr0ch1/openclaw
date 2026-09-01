@@ -529,6 +529,8 @@ export const en: TranslationMap & {
     },
     dialog: {
       restarting: "The Gateway is restarting. This page disconnects and reconnects on its own.",
+      disconnected:
+        "Disconnected from the Gateway. This page will try to reconnect. If it stays disconnected, run `openclaw gateway status --deep` on the Gateway host and inspect the update diagnostics before restarting.",
     },
     channel: {},
     installKind: {},

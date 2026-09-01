@@ -10,6 +10,9 @@ export function resolveUnsafeUpdateRecoveryGuidance(
   reason: UnsafeUpdateRecovery["reason"],
 ): string {
   const updateCommand = formatCliCommand("openclaw update");
+  if (reason === "state-migration-started") {
+    return "Candidate Doctor may have migrated state. Keep the candidate installed, repair the reported failure, and rerun the update; do not roll back code alone.";
+  }
   if (reason === "rollback-checkout-dirty") {
     return `From the update root shown above, run \`git status --short\`, resolve the reported changes, then rerun \`${updateCommand}\`.`;
   }

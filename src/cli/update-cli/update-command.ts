@@ -27,7 +27,11 @@ import {
   resolveNpmChannelTag,
   resolveUpdateInstallKind,
 } from "../../infra/update-check.js";
-import { readControlPlaneUpdateSentinelMeta } from "../../infra/update-control-plane-sentinel.js";
+import {
+  resolveManagedServiceUpdateFailureExitCode,
+  MANAGED_SERVICE_UPDATE_UNSAFE_EXIT_CODE,
+  readControlPlaneUpdateSentinelMeta,
+} from "../../infra/update-control-plane-sentinel.js";
 import {
   parseDevUpdateTargetEnv,
   type DevUpdateTarget,
@@ -130,11 +134,22 @@ export async function updateCommand(opts: UpdateCommandOptions): Promise<void> {
       } catch (error) {
         if (failure?.error instanceof UpdateCommandFailure) {
           // A rejected restore promise can be observed again during unwinding.
-          // Keep the reported failure and never turn cleanup into safe-exit 80.
+          // Cleanup cannot authorize activation or erase the original foreground exit.
+          const result = {
+            ...failure.error.result,
+            status: "error" as const,
+            recovery: {
+              serviceRestartSafe: false as const,
+              reason: "runtime-verification-failed" as const,
+            },
+          };
           failure = {
             error: new UpdateCommandFailure(
-              { ...failure.error.result, status: "error" },
-              1,
+              result,
+              resolveManagedServiceUpdateFailureExitCode(result) ===
+                MANAGED_SERVICE_UPDATE_UNSAFE_EXIT_CODE
+                ? MANAGED_SERVICE_UPDATE_UNSAFE_EXIT_CODE
+                : failure.error.exitCode,
               `${failure.error.message}; Windows autostart recovery: ${formatErrorMessage(error)}`,
               { cause: error },
             ),
@@ -261,11 +276,10 @@ async function updateCommandInternal(
     defaultRuntime.log(theme.muted("Checking for updates..."));
   }
   const installKind = await resolveUpdateInstallKind(root);
-  let updateInstallKind = installKind;
   const refuseUpdate = (reason: string, message?: string) =>
     reportPreMutationUpdateFailure({
       root,
-      installKind: updateInstallKind,
+      installKind,
       reason,
       message,
       opts,
@@ -323,7 +337,7 @@ async function updateCommandInternal(
     (requestedChannel === "dev" || (channel === "dev" && explicitTag === null));
   const switchToPackage =
     requestedChannel !== null && requestedChannel !== "dev" && installKind === "git";
-  updateInstallKind = switchToGit ? "git" : switchToPackage ? "package" : installKind;
+  const updateInstallKind = switchToGit ? "git" : switchToPackage ? "package" : installKind;
   if (channel === "dev" && requestedChannel !== "dev") {
     const resolvedDevTarget = readDevUpdateTargetOrExit();
     if (!resolvedDevTarget.ok) {

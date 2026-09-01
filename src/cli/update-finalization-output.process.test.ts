@@ -17,9 +17,18 @@ const doctorDiagnostics = [
   "Doctor console diagnostic",
   "Doctor complete.",
 ];
+const scenarios = [
+  "json",
+  "inherited-json",
+  "doctor-error",
+  "plugin-error",
+  "human",
+  "human-plugin-error",
+  "human-plugin-warning",
+];
 
 describe.each(["repair", "finalize"])("update %s process output", (command) => {
-  it.each(["json", "inherited-json", "doctor-error", "plugin-error", "human"])(
+  it.each(scenarios)(
     "%s preserves the output and exit contract without restarting",
     async (scenario) => {
       const root = tempDirs.make("openclaw-update-json-");
@@ -50,7 +59,7 @@ describe.each(["repair", "finalize"])("update %s process output", (command) => {
           logging: { file: path.join(root, "openclaw.log") },
         }),
       );
-      const json = scenario !== "human";
+      const json = !scenario.startsWith("human");
       const args = [
         "update",
         ...(scenario === "inherited-json" ? ["--json"] : []),
@@ -95,7 +104,13 @@ describe.each(["repair", "finalize"])("update %s process output", (command) => {
       }
       expect(result.stderr, failure).toContain("Doctor stderr diagnostic");
       if (!json) {
-        expect(result.stdout).toContain("Update finalization completed.");
+        const terminal =
+          scenario === "human-plugin-error"
+            ? "Update finalization failed."
+            : scenario === "human-plugin-warning"
+              ? "Update finalization completed with warnings."
+              : "Update finalization completed.";
+        expect(result.stdout.trimEnd().endsWith(terminal), failure).toBe(true);
         return;
       }
       // Parse the whole pipe: accepting a suffix would hide Clack's direct stdout writes.

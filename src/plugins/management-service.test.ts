@@ -162,7 +162,7 @@ describe("plugin management service", () => {
         version: "2.0.0",
         featured: true,
         order: 40,
-        install: { source: "clawhub", packageName: "@openclaw/diffs" },
+        install: { source: "official", pluginId: "diffs" },
       }),
     ]);
   });

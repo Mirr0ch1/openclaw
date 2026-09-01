@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockSystemAccountHome } from "../daemon/service.test-helpers.js";
-import type { UpdateRunResult } from "../infra/update-runner.js";
+import type { UpdateRecovery } from "../infra/update-recovery.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { EXTERNAL_SERVICE_REPAIR_NOTE } from "./doctor-service-repair-policy.js";
 import { maybeOfferUpdateBeforeDoctor } from "./doctor-update.js";
@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   maybeStopManagedServiceBeforeMutableUpdate: vi.fn(),
   note: vi.fn(),
   readGatewayServiceState: vi.fn(),
+  readCurrentGitUpdateRecovery: vi.fn(),
   revalidateManagedGatewayServiceAfterUpdate: vi.fn(),
   restartUpdatedGateway: vi.fn(),
   stopGatewayService: vi.fn(),
@@ -41,6 +42,10 @@ vi.mock("../daemon/gateway-entrypoint.js", () => ({
 }));
 vi.mock("../process/exec.js", () => ({
   runCommandWithTimeout: mocks.runCommandWithTimeout,
+}));
+
+vi.mock("../infra/update-runner-git-recovery.js", () => ({
+  readCurrentGitUpdateRecovery: mocks.readCurrentGitUpdateRecovery,
 }));
 
 vi.mock("../infra/update-runner.js", () => ({
@@ -130,6 +135,11 @@ beforeEach(async () => {
   mocks.resolveGatewayService.mockReset();
   mocks.runCommandWithTimeout.mockReset();
   mocks.runGatewayUpdate.mockReset();
+  mocks.readCurrentGitUpdateRecovery.mockReset().mockResolvedValue({
+    serviceRestartSafe: true,
+    version: "2026.4.24",
+    buildId: "synthetic-build",
+  });
   mocks.resolveGatewayService.mockReturnValue({
     restart: vi.fn(),
     start: vi.fn(),
@@ -247,7 +257,7 @@ describe("maybeOfferUpdateBeforeDoctor", () => {
     mode: "git";
     root: string;
     after?: { version: string; buildId?: string };
-    recovery?: UpdateRunResult["recovery"];
+    recovery?: UpdateRecovery;
   }) {
     mocks.runGatewayUpdate.mockImplementation(
       async ({
@@ -732,6 +742,9 @@ describe("maybeOfferUpdateBeforeDoctor", () => {
     expect(mocks.maybeRestartServiceAfterFailedMutableUpdate).toHaveBeenCalledWith({
       preManagedServiceStop: expect.objectContaining({ stopped: true }),
       jsonMode: false,
+      timeoutMs: 1_200_000,
+      invocationCwd: "/repo/link",
+      recovery: { serviceRestartSafe: true, version: "2026.4.24", buildId: "synthetic-build" },
     });
     expect(mocks.note).not.toHaveBeenCalledWith(
       expect.stringContaining("source checkout may be partially mutated"),
@@ -750,7 +763,9 @@ describe("maybeOfferUpdateBeforeDoctor", () => {
         status: "error",
         mode: "git",
         root: "/repo/link",
-        recovery: safe ? { serviceRestartSafe: true } : undefined,
+        recovery: safe
+          ? { serviceRestartSafe: true, version: "2026.4.24", buildId: "synthetic-build" }
+          : undefined,
       });
 
       await expect(runOffer({ confirm: vi.fn().mockResolvedValue(true) })).resolves.toEqual({
@@ -760,8 +775,11 @@ describe("maybeOfferUpdateBeforeDoctor", () => {
 
       if (safe) {
         expect(mocks.maybeRestartServiceAfterFailedMutableUpdate).toHaveBeenCalledWith({
+          recovery: { serviceRestartSafe: true, version: "2026.4.24", buildId: "synthetic-build" },
           preManagedServiceStop: expect.objectContaining({ stopped: true }),
           jsonMode: false,
+          timeoutMs: 1_200_000,
+          invocationCwd: "/repo/link",
         });
       } else {
         expect(mocks.maybeRestartServiceAfterFailedMutableUpdate).not.toHaveBeenCalled();

@@ -114,19 +114,20 @@ resuming interrupted deletion.
 
 Installer-driven switches verify the replacement before the working owner is retired. Source wrappers are published atomically; same-path npm shim transitions use an identity-checked backup that is restored on failure, so a failed candidate leaves the previous command runnable. The `openclaw update` command prints its final success result only after post-core convergence and requested restart health checks succeed.
 
-If a CLI update fails after installing a usable replacement, recovery uses the
+If a CLI update fails after installing a verified replacement, recovery uses the
 newly installed CLI to restart the Gateway it stopped, preserving the managed
-service definition. A rejected staged candidate leaves the original package intact,
-and recovery restarts that usable installation. A failed staged swap can also
-recover when the updater verifies that the original package and every changed
-launcher were restored. Incomplete rollback keeps the Gateway stopped and retains
-available backups for repair. After the live package has been modified, a blocking
-lifecycle, verification, or Doctor failure also leaves the Gateway stopped because
-the replacement is not known to be runnable. Repair the reported failure, rerun
-`openclaw update`, and check `openclaw gateway status --deep`.
+service definition. A failure preparing the staging directory, before package
+hooks can run, can recover the verified original installation. Package-manager
+and lifecycle commands can change configuration or state even in a temporary
+prefix. After they start, a rejected staged candidate or a fully restored package
+and launcher no longer authorizes automatic restart. Only complete candidate
+verification, including the required nonblocking Doctor result, permits activation.
+This deliberately limits automatic recovery after hooks; file rollback does not
+roll back state. Incomplete file rollback retains its backups for inspection.
 If an older target does not support preserving the service definition, automatic
-recovery stops and reports the error; inspect the service before restarting it
-manually.
+recovery stops and reports the error without retrying with weaker options. Repair
+the reported failure, rerun `openclaw update`, and check `openclaw gateway status --deep`.
+See [Failed update recovery](/gateway/restart-recovery#recovery-after-a-failed-update).
 
 Use channels to change the install type. The updater keeps your state, config,
 credentials, and workspace in `~/.openclaw`; it only changes which OpenClaw
@@ -619,10 +620,11 @@ git checkout --detach <known-good-tag-or-commit>
 
 To return to latest: `git checkout main && git pull`.
 
-The updater automatically returns a git checkout to its previous branch and
-SHA when dependency installation, build, UI build, or doctor fails after a git
-update starts. Manual checkout is still required when you intentionally choose
-an older commit.
+Before candidate Doctor starts, the updater can return a Git checkout to its
+previous branch and SHA after dependency, build, or UI build failure, then verify
+its rebuilt runtime. Once Doctor starts, failures retain the candidate: switching
+code back cannot undo configuration or database migrations. Inspect the failed
+checks before selecting an older commit, and verify that it supports your state.
 
 ### Downgrading across the session SQLite migration
 

@@ -184,7 +184,8 @@ it("keeps the dialog open and narrates the install, the restart, and the failure
   // The Gateway goes away mid-install; the dialog is mounted outside the shell
   // precisely so it can keep reporting through the disconnect.
   await stream.push({ busy: true, connected: false, failure: null });
-  expect(modal.textContent).toContain("The Gateway is restarting");
+  expect(modal.textContent).toContain("Disconnected from the Gateway");
+  expect(modal.textContent).toContain("openclaw gateway status --deep");
   expect(document.body.querySelector("openclaw-modal-dialog")).not.toBeNull();
 
   await stream.push({

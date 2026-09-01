@@ -111,14 +111,18 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("update failure triage boundary", () => {
-  it.each([0, 7])(
-    "runs the installed triage after cleanup without changing update failure (triage exit %i)",
-    async (triageExitCode) => {
+  it.each(
+    [0, 7].flatMap((triageExitCode) =>
+      [1, 2, 79].map((updateExitCode) => ({ triageExitCode, updateExitCode })),
+    ),
+  )(
+    "runs the installed triage after cleanup without changing update failure (triage exit $triageExitCode, update exit $updateExitCode)",
+    async ({ triageExitCode, updateExitCode }) => {
       const target = await createInstalledTriage(triageExitCode);
       await withUpdateFailureTriage({ json: true }, target, async () => {
         try {
           defaultRuntime.writeJson(failedUpdate);
-          throw new UpdateCommandFailure(failedUpdate);
+          throw new UpdateCommandFailure(failedUpdate, updateExitCode);
         } finally {
           await fs.writeFile(path.join(target.root, "released"), "done");
         }
@@ -137,7 +141,7 @@ describe("update failure triage boundary", () => {
       expect(receipt.serviceMarker).toBeUndefined();
       expect(receipt.args).toContain("--json");
       expect(JSON.stringify(receipt.failure)).toContain("ENOSPC");
-      expect(defaultRuntime.exit).toHaveBeenCalledExactlyOnceWith(1);
+      expect(defaultRuntime.exit).toHaveBeenCalledExactlyOnceWith(updateExitCode);
       expect(defaultRuntime.writeJson).toHaveBeenCalledExactlyOnceWith(failedUpdate);
       expect(defaultRuntime.log).not.toHaveBeenCalled();
       expect(defaultRuntime.error).toHaveBeenCalledWith(expect.stringContaining('"promptPath":'));
@@ -174,7 +178,7 @@ describe("update failure triage boundary", () => {
       const result: UpdateRunResult = {
         ...failedUpdate,
         after: { version: "2026.9.1" },
-        recovery: { serviceRestartSafe: true },
+        recovery: { serviceRestartSafe: true, version: "2026.8.1" },
       };
       const targetWithResult: UpdateTriageTarget = { ...target, failureResult: result };
       await fs.writeFile(contextPath, JSON.stringify({ error: "Stale pre-recovery result" }));

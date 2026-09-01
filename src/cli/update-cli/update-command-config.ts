@@ -12,7 +12,7 @@ import {
 import { resolveConfigEnvVars } from "../../config/env-substitution.js";
 import { resolveConfigIncludes } from "../../config/includes.js";
 import { asResolvedSourceConfig, asRuntimeConfig } from "../../config/materialize.js";
-import { CONFIG_PATH, resolveIncludeRoots } from "../../config/paths.js";
+import { resolveConfigPath, resolveIncludeRoots } from "../../config/paths.js";
 import { parsePluginInstallRecordMap } from "../../config/plugin-install-record-map.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../../config/types.plugins.js";
@@ -27,7 +27,7 @@ const PRE_UPDATE_CONFIG_SNAPSHOT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 export async function createUpdateConfigSnapshot(): Promise<void> {
   await createPreUpdateConfigSnapshot({
-    configPath: CONFIG_PATH,
+    configPath: resolveConfigPath(),
     fs: { writeFile: fs.writeFile, readFile: fs.readFile, existsSync },
   });
 }

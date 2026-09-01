@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
+import { parseClawHubPluginSpec } from "../infra/clawhub-spec.js";
 import { readInstalledPackageVersion } from "../infra/package-update-utils.js";
 import type { UpdateChannel } from "../infra/update-channels.js";
 import { resolveBundledPluginSources } from "./bundled-sources.js";
@@ -13,11 +14,15 @@ import { installPluginFromClawHub } from "./clawhub.js";
 import {
   getExternalizedBundledPluginClawHubSpec,
   getExternalizedBundledPluginNpmSpec,
-  getExternalizedBundledPluginPreferredSource,
   getExternalizedBundledPluginTargetId,
   type ExternalizedBundledPluginBridge,
 } from "./externalized-bundled-plugins.js";
-import { resolveNpmInstallSpecsForUpdateChannel } from "./install-channel-specs.js";
+import {
+  installWithSourceFallback,
+  resolvePluginInstallSources,
+  resolveClawHubInstallSpecsForUpdateChannel,
+  resolveNpmInstallSpecsForUpdateChannel,
+} from "./install-channel-specs.js";
 import { installPluginFromNpmSpec } from "./install.js";
 import {
   buildNpmResolutionInstallFields,
@@ -34,11 +39,9 @@ import {
   userPathsEqual,
   removeBridgeBundledLoadPaths,
   resolveBridgeInstallRecord,
-  shouldFallbackClawHubBridgeToNpm,
 } from "./update-config.js";
 import {
-  isBridgeAlreadyInstalledFromPreferredSource,
-  isBridgeInstalledFromFallbackSource,
+  isBridgeRegistryInstall,
   isTrustedSourceLinkedOfficialBridgeNpmInstall,
   resolveNpmSpecPackageName,
   type PluginUpdateLogger,
@@ -132,13 +135,7 @@ export async function syncPluginsForUpdateChannel(params: {
         continue;
       }
 
-      if (
-        existing &&
-        isBridgeAlreadyInstalledFromPreferredSource({
-          bridge,
-          record: existing.record,
-        })
-      ) {
+      if (existing && isBridgeRegistryInstall(bridge, existing.record)) {
         if (existing.pluginId !== targetPluginId) {
           next = migratePluginConfigId(next, existing.pluginId, targetPluginId);
           installs = next.plugins?.installs ?? {};
@@ -147,23 +144,12 @@ export async function syncPluginsForUpdateChannel(params: {
         removeBridgeBundledLoadPaths({ bridge, loadPaths: loadHelpers, env });
         continue;
       }
-
-      if (
-        existing &&
-        !isBridgeBundledPathRecord({
-          bridge,
-          record: existing.record,
-          env,
-        }) &&
-        !isBridgeInstalledFromFallbackSource({
-          bridge,
-          record: existing.record,
-        })
-      ) {
+      // A registry record does not say whether the source was chosen explicitly.
+      // Only image-owned bundled paths authorize automatic source replacement.
+      if (existing && !isBridgeBundledPathRecord({ bridge, record: existing.record, env })) {
         continue;
       }
 
-      const preferredSource = getExternalizedBundledPluginPreferredSource(bridge);
       const npmSpec = getExternalizedBundledPluginNpmSpec(bridge);
       const clawhubSpec = getExternalizedBundledPluginClawHubSpec(bridge);
       const trustedSourceLinkedOfficialInstall = isTrustedSourceLinkedOfficialBridgeNpmInstall({
@@ -185,12 +171,23 @@ export async function syncPluginsForUpdateChannel(params: {
       // inherit it.
       const bridgeNpmIntegrity =
         effectiveNpmSpec === npmSpec ? bridge.expectedIntegrity?.trim() : undefined;
-      let installSource = preferredSource;
-      let installSpec = preferredSource === "clawhub" ? clawhubSpec : effectiveNpmSpec;
-      if (!installSpec) {
-        const message = `Failed to update ${targetPluginId}: missing ${preferredSource} install spec for externalized bundled plugin.`;
-        summary.errors.push(message);
-        logger.error?.(message);
+      const channelClawHubSpecs = clawhubSpec
+        ? resolveClawHubInstallSpecsForUpdateChannel({
+            spec: clawhubSpec,
+            updateChannel: params.channel,
+            officialPackageName: trustedSourceLinkedOfficialInstall
+              ? parseClawHubPluginSpec(clawhubSpec)?.name
+              : undefined,
+            coreVersion: params.coreVersion,
+          })
+        : undefined;
+      const sources = resolvePluginInstallSources({
+        npmSpec: effectiveNpmSpec,
+        clawhubSpec: channelClawHubSpecs?.installSpec,
+        expectedIntegrity: bridgeNpmIntegrity,
+      });
+      if (sources.length === 0) {
+        summary.errors.push(`Failed to update ${targetPluginId}: no declared remote source.`);
         continue;
       }
 
@@ -235,21 +232,20 @@ export async function syncPluginsForUpdateChannel(params: {
         consent.rethrowCallbackError();
         return { result, capabilityConsent };
       };
-      let attempt = await install(installSource, installSpec);
-      if (
-        preferredSource === "clawhub" &&
-        !attempt.result.ok &&
-        npmSpec &&
-        shouldFallbackClawHubBridgeToNpm({ result: attempt.result, npmSpec })
-      ) {
-        const warning = `ClawHub ${clawhubSpec} unavailable for ${targetPluginId}; falling back to npm ${effectiveNpmSpec}.`;
-        summary.warnings.push(warning);
-        logger.warn?.(warning);
-        installSource = "npm";
-        installSpec = effectiveNpmSpec;
-        attempt = await install(installSource, installSpec);
-      }
-      const { result, capabilityConsent } = attempt;
+      const {
+        attempt: { result, capabilityConsent },
+        source: installedSource,
+      } = await installWithSourceFallback({
+        sources,
+        install: (source) => install(source.source, source.spec),
+        result: (attempt) => attempt.result,
+        onFallback: (warning) => {
+          summary.warnings.push(warning);
+          logger.warn?.(warning);
+        },
+      });
+      const installSource = installedSource.source;
+      const installSpec = installedSource.spec;
 
       if (!result.ok) {
         const clawHubTrustWarning =
@@ -294,7 +290,7 @@ export async function syncPluginsForUpdateChannel(params: {
         >;
         record = {
           ...buildClawHubPluginInstallRecordFields(clawhubResult.clawhub),
-          spec: installSpec,
+          spec: channelClawHubSpecs?.recordSpec ?? installSpec,
           installPath: result.targetDir,
           version: nextVersion,
         };
@@ -306,13 +302,9 @@ export async function syncPluginsForUpdateChannel(params: {
         record = {
           source: "npm",
           spec: resolveNpmInstallRecordSpec({
-            requestedSpec:
-              params.channel === "extended-stable" && installSource === "npm"
-                ? (channelNpmSpecs?.recordSpec ?? installSpec)
-                : installSpec,
+            requestedSpec: channelNpmSpecs?.recordSpec ?? installSpec,
             resolution: npmResult.npmResolution,
-            pinResolvedRegistrySpec:
-              trustedSourceLinkedOfficialInstall && params.channel !== "extended-stable",
+            pinResolvedRegistrySpec: false,
           }),
           installPath: result.targetDir,
           version: nextVersion,

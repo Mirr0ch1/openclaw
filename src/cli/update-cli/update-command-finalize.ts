@@ -346,6 +346,10 @@ async function updateFinalizeCommandInternal(
     defaultRuntime.writeJson(result);
   } else if (result.status === "ok") {
     defaultRuntime.log(theme.muted("Update finalization completed."));
+  } else if (result.status === "warning") {
+    defaultRuntime.log(theme.warn("Update finalization completed with warnings."));
+  } else {
+    defaultRuntime.log(theme.error("Update finalization failed."));
   }
   if (result.status === "error") {
     throw new UpdateCommandFailure({

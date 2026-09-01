@@ -622,6 +622,7 @@ describe("runGatewayUpdate", () => {
       await fs.mkdir(path.dirname(absolutePath), { recursive: true });
       await fs.writeFile(absolutePath, "export {};\n", "utf-8");
     }
+    await fs.writeFile(path.join(pkgRoot, "dist", "index.js"), "export {};\n", "utf8");
   }
 
   async function writeGatewayEntrypoint(pkgRoot: string) {
@@ -742,7 +743,11 @@ describe("runGatewayUpdate", () => {
 
       expect(result.status).toBe(status);
       expect(result.reason).toBe(reason);
-      expect(result.recovery).toEqual({ serviceRestartSafe: true });
+      // This checkout fixture has no built runtime identity; no mutation is not activation proof.
+      expect(result.recovery).toEqual({
+        serviceRestartSafe: false,
+        reason: "runtime-verification-failed",
+      });
       expect(result.steps).toMatchObject([
         {
           name: "clean check",
@@ -801,7 +806,11 @@ describe("runGatewayUpdate", () => {
 
     expect(result.status).toBe("error");
     expect(result.reason).toBe("fetch-failed");
-    expect(result.recovery).toEqual({ serviceRestartSafe: true });
+    // This checkout fixture has no built runtime identity; no mutation is not activation proof.
+    expect(result.recovery).toEqual({
+      serviceRestartSafe: false,
+      reason: "runtime-verification-failed",
+    });
     expect(calls).toContain(fetchCommand);
     expect(calls.slice(calls.indexOf(fetchCommand) + 1)).toStrictEqual([]);
   });
@@ -1210,7 +1219,11 @@ describe("runGatewayUpdate", () => {
 
       expect(result.status).toBe("error");
       expect(result.reason).toBe(reason);
-      expect(result.recovery).toEqual({ serviceRestartSafe: true });
+      // This checkout fixture has no built runtime identity; no mutation is not activation proof.
+      expect(result.recovery).toEqual({
+        serviceRestartSafe: false,
+        reason: "runtime-verification-failed",
+      });
       expect(beforeGitMutation).not.toHaveBeenCalled();
       expect(calls.some((call) => call.includes(" worktree add "))).toBe(false);
     },
@@ -1255,7 +1268,7 @@ describe("runGatewayUpdate", () => {
       expect(result.reason).toBe(`${operation}-failed`);
       expect(result.recovery).toEqual(
         rollbackSucceeds
-          ? { serviceRestartSafe: true }
+          ? { serviceRestartSafe: false, reason: "runtime-verification-failed" }
           : { serviceRestartSafe: false, reason: "source-rollback-failed" },
       );
       if (operation === "rebase") {
@@ -1304,7 +1317,7 @@ describe("runGatewayUpdate", () => {
       mode: "git",
       root: tempDir,
       reason: "unsupported_git_channel",
-      recovery: { serviceRestartSafe: true },
+      recovery: { serviceRestartSafe: false, reason: "runtime-verification-failed" },
       steps: [],
     });
     expect(calls).not.toContain(`git -C ${tempDir} fetch --all --prune --tags`);
@@ -2163,7 +2176,7 @@ describe("runGatewayUpdate", () => {
     expect(calls).toContain(`git -C ${tempDir} reset --hard abc123`);
   });
 
-  it("rolls back and reports error when the final HEAD verification probe fails", async () => {
+  it("retains candidate source when the final HEAD verification probe fails after Doctor", async () => {
     await setupGitCheckout({ packageManager: PNPM_PACKAGE_MANAGER });
     await setupUiIndex();
     const stableTag = "v1.0.1-1";
@@ -2195,9 +2208,9 @@ describe("runGatewayUpdate", () => {
     expect(result.status).toBe("error");
     expect(result.reason).toBe("head-verification-failed");
     expect(result.after).toBeUndefined();
-    expect(calls).toContain(`git -C ${tempDir} reset --hard`);
-    expect(calls).toContain(`git -C ${tempDir} checkout --force main`);
-    expect(calls).toContain(`git -C ${tempDir} reset --hard abc123`);
+    expect(calls).not.toContain(`git -C ${tempDir} reset --hard`);
+    expect(calls).not.toContain(`git -C ${tempDir} checkout --force main`);
+    expect(calls).not.toContain(`git -C ${tempDir} reset --hard abc123`);
   });
 
   it("uses stable tag when beta tag is older than release", async () => {
@@ -2525,7 +2538,11 @@ describe("runGatewayUpdate", () => {
       const result = await runWithCommand(runCommand, { channel: "dev" });
       expect(result.status).toBe("error");
       expect(result.reason).toBe("preflight-cleanup-failed");
-      expect(result.recovery).toEqual({ serviceRestartSafe: true });
+      // This checkout fixture has no built runtime identity; no mutation is not activation proof.
+      expect(result.recovery).toEqual({
+        serviceRestartSafe: false,
+        reason: "runtime-verification-failed",
+      });
       expect(calls).not.toContain(`git -C ${tempDir} rebase upstream123`);
       expect(result.steps).not.toContainEqual(expect.objectContaining({ name: "deps install" }));
       expect(result.steps).toContainEqual(
@@ -3200,6 +3217,7 @@ describe("runGatewayUpdate", () => {
     expect(result.steps.map((s) => s.name)).toEqual([
       "global update",
       "global update (omit optional)",
+      "openclaw doctor",
     ]);
   });
 
@@ -3362,7 +3380,11 @@ describe("runGatewayUpdate", () => {
     const pnpmAddGlobalCalls = calls.filter((call) => call.startsWith("pnpm add -g"));
     expect(npmPrefixedGlobalInstallCalls.length).toBeGreaterThan(0);
     expect(pnpmAddGlobalCalls).toStrictEqual([]);
-    expect(result.steps.map((step) => step.name)).toEqual(["global update", "global install swap"]);
+    expect(result.steps.map((step) => step.name)).toEqual([
+      "global update",
+      "global install swap",
+      "openclaw doctor",
+    ]);
     await expect(fs.access(staleInstallChunk)).rejects.toHaveProperty("code", "ENOENT");
   });
 
@@ -3476,52 +3498,69 @@ describe("runGatewayUpdate", () => {
 
   it.each([
     {
+      failure: "build",
       bundle: "complete",
+      rollbackInstallFails: false,
       missingRollbackStartupAsset: false,
       rollbackBuildStatus: null,
       serviceRestartSafe: true,
     },
     {
+      failure: "build",
       bundle: "incomplete",
+      rollbackInstallFails: false,
       missingRollbackStartupAsset: true,
       rollbackBuildStatus: null,
       serviceRestartSafe: false,
     },
     {
+      failure: "build",
       bundle: "dirty rollback build",
+      rollbackInstallFails: false,
       missingRollbackStartupAsset: false,
       rollbackBuildStatus: " M pnpm-lock.yaml\n",
       serviceRestartSafe: false,
     },
     {
+      failure: "build",
       bundle: "untracked rollback output",
+      rollbackInstallFails: false,
       missingRollbackStartupAsset: false,
       rollbackBuildStatus: "?? generated.tmp\n",
       serviceRestartSafe: false,
     },
     {
       bundle: "complete after partial dependency replacement",
-      failurePhase: "install",
+      rollbackInstallFails: false,
+      failure: "install",
       missingRollbackStartupAsset: false,
       rollbackBuildStatus: null,
       serviceRestartSafe: true,
     },
     {
       bundle: "unrestored dependencies",
-      failurePhase: "install",
+      failure: "install",
       rollbackInstallFails: true,
       missingRollbackStartupAsset: false,
       rollbackBuildStatus: null,
       serviceRestartSafe: false,
     },
+    ...["doctor-error", "doctor-throw", "post-doctor-ui", "post-doctor-head"].map((failure) => ({
+      failure,
+      bundle: "candidate retained",
+      rollbackInstallFails: false,
+      missingRollbackStartupAsset: false,
+      rollbackBuildStatus: null,
+      serviceRestartSafe: false,
+    })),
   ])(
-    "verifies pnpm 12 to 11 rollback: $bundle",
+    "Git recovery boundary: $failure with $bundle startup bundle",
     async ({
+      failure,
       missingRollbackStartupAsset,
       rollbackBuildStatus,
       serviceRestartSafe,
-      failurePhase = "doctor",
-      rollbackInstallFails = false,
+      rollbackInstallFails,
     }) => {
       await setupGitCheckout({ packageManager: "pnpm@11.22.0" });
       const beforeSha = "a".repeat(40);
@@ -3529,6 +3568,9 @@ describe("runGatewayUpdate", () => {
       const stableTag = "v1.0.1-1";
       let currentHead = beforeSha;
       let buildCount = 0;
+      let doctorRan = false;
+      const canary = path.join(await fixtureRootTracker.make("synthetic-state"), "canary");
+      await fs.writeFile(canary, "original-state");
       const calls: string[] = [];
       const buildEnvs: NodeJS.ProcessEnv[] = [];
       const managerVersions: string[] = [];
@@ -3553,7 +3595,7 @@ describe("runGatewayUpdate", () => {
           fs.writeFile(path.join(distRoot, "entry.js"), "export {};\n", "utf8"),
           fs.writeFile(
             path.join(distRoot, "build-info.json"),
-            `${JSON.stringify({ commit: head })}\n`,
+            `${JSON.stringify({ commit: head, version: head === beforeSha ? "1.0.0" : "1.0.1", buildId: head === beforeSha ? "original-built-runtime" : "candidate-built-runtime" })}\n`,
             "utf8",
           ),
           fs.writeFile(path.join(distRoot, ".buildstamp"), `${JSON.stringify({ head })}\n`, "utf8"),
@@ -3576,7 +3618,11 @@ describe("runGatewayUpdate", () => {
           return toCommandResult({ stdout: tempDir });
         }
         if (key === `git -C ${tempDir} rev-parse HEAD`) {
-          return toCommandResult({ stdout: `${currentHead}\n` });
+          return toCommandResult(
+            doctorRan && failure === "post-doctor-head"
+              ? { code: 1, stderr: "HEAD verification failed" }
+              : { stdout: `${currentHead}\n` },
+          );
         }
         if (key === `git -C ${tempDir} rev-parse --abbrev-ref HEAD`) {
           return toCommandResult({ stdout: "main\n" });
@@ -3612,7 +3658,7 @@ describe("runGatewayUpdate", () => {
           }
           await writeDependency(currentHead);
           return toCommandResult(
-            currentHead === targetSha && failurePhase === "install"
+            currentHead === targetSha && failure === "install"
               ? { code: 1, stderr: "install failed after replacing a dependency" }
               : undefined,
           );
@@ -3621,13 +3667,29 @@ describe("runGatewayUpdate", () => {
           buildCount += 1;
           buildEnvs.push(options?.env ?? {});
           await writeRuntime(currentHead);
-          return toCommandResult();
+          return toCommandResult(
+            failure === "build" && buildCount === 1
+              ? { code: 1, stderr: "candidate build failed" }
+              : undefined,
+          );
         }
         if (key === statusCommand && rollbackBuildStatus && buildCount >= 2) {
           return toCommandResult({ stdout: rollbackBuildStatus });
         }
         if (key === doctorCommand) {
-          return toCommandResult({ code: 1, stderr: "doctor failed after build" });
+          doctorRan = true;
+          await fs.writeFile(canary, "candidate-migrated-state");
+          if (failure === "doctor-throw") {
+            throw new Error("doctor crashed after migration");
+          }
+          if (failure === "post-doctor-ui") {
+            await removeControlUiAssets();
+          }
+          return toCommandResult(
+            failure === "doctor-error"
+              ? { code: 1, stderr: "doctor failed after migration" }
+              : undefined,
+          );
         }
         return toCommandResult();
       };
@@ -3644,6 +3706,27 @@ describe("runGatewayUpdate", () => {
         },
       );
 
+      if (failure !== "build" && failure !== "install") {
+        expect(result).toMatchObject({
+          status: "error",
+          recovery: {
+            serviceRestartSafe: false,
+            reason: "state-migration-started",
+          },
+        });
+        expect(await fs.readFile(canary, "utf8")).toBe("candidate-migrated-state");
+        expect(currentHead).toBe(targetSha);
+        expect(buildCount).toBe(1);
+        expect(managerVersions).toEqual(["12.0.0"]);
+        expect(result.steps.some((step) => step.name.startsWith("git rollback"))).toBe(false);
+        expect(calls.some((call) => call.includes(" reset ") || call.includes(" clean -"))).toBe(
+          false,
+        );
+        expect(
+          JSON.parse(await fs.readFile(path.join(tempDir, "dist/build-info.json"), "utf8")),
+        ).toMatchObject({ commit: targetSha, buildId: "candidate-built-runtime" });
+        return;
+      }
       const dependency = await runCommandWithTimeout(
         [
           process.execPath,
@@ -3654,11 +3737,14 @@ describe("runGatewayUpdate", () => {
       );
       expect(dependency.code).toBe(0);
       expect(dependency.stdout).toBe(rollbackInstallFails ? targetSha : beforeSha);
+      expect(await fs.readFile(canary, "utf8")).toBe("original-state");
+      expect(calls).not.toContain(doctorCommand);
+      expect(managerVersions).toEqual(["12.0.0", "11.22.0"]);
       expect(result).toMatchObject({
         status: "error",
-        reason: failurePhase === "install" ? "deps-install-failed" : "doctor-failed",
+        reason: failure === "install" ? "deps-install-failed" : "build-failed",
         recovery: serviceRestartSafe
-          ? { serviceRestartSafe: true }
+          ? { serviceRestartSafe: true, version: "1.0.0", buildId: "original-built-runtime" }
           : {
               serviceRestartSafe: false,
               reason: rollbackInstallFails
@@ -3669,7 +3755,7 @@ describe("runGatewayUpdate", () => {
             },
       });
       expect(managerVersions).toEqual(["12.0.0", "11.22.0"]);
-      const expectedBuilds = failurePhase === "doctor" ? 2 : rollbackInstallFails ? 0 : 1;
+      const expectedBuilds = failure === "build" ? 2 : rollbackInstallFails ? 0 : 1;
       expect(buildCount).toBe(expectedBuilds);
       expect(buildEnvs).toEqual(
         Array.from({ length: expectedBuilds }, () =>
@@ -3693,11 +3779,6 @@ describe("runGatewayUpdate", () => {
             exitCode: 0,
             stdoutTail: rollbackBuildStatus.trimEnd(),
           }),
-        );
-      }
-      if (failurePhase === "doctor") {
-        expect(calls.indexOf(doctorCommand)).toBeLessThan(
-          calls.lastIndexOf(`git -C ${tempDir} rev-parse HEAD`),
         );
       }
       if (!rollbackInstallFails) {
@@ -3847,7 +3928,11 @@ describe("runGatewayUpdate", () => {
           ),
         }),
       );
-      expect(result.steps.at(-1)?.name).toMatch(/^git rollback/);
+      expect(result.recovery).toEqual({
+        serviceRestartSafe: false,
+        reason: "state-migration-started",
+      });
+      expect(result.steps.some((step) => step.name.startsWith("git rollback"))).toBe(false);
     },
   );
 });

@@ -155,6 +155,8 @@ install records, syncs tracked plugins for the active update channel, updates
 managed npm plugin installs, repairs missing configured plugin payloads,
 refreshes the plugin registry, and writes converged install-record metadata.
 It does not install a new core package and does not restart the Gateway.
+Human output ends with a finalization result that distinguishes completion,
+completion with warnings, and failure.
 
 With `--json`, stdout contains one JSON document. Doctor panels and other
 diagnostics go to stderr, so stdout can be parsed directly. Failed doctor or
@@ -451,11 +453,13 @@ and ClawHub plugins on the beta channel try their plugin `@beta` tag.
 
 If the selected beta plugin release is unavailable, OpenClaw falls back to the
 default/latest spec and reports a warning naming the requested and used targets.
-For npm plugins, this also applies when the selected beta package fails install
-validation. These fallback warnings do not fail the core update. Ordinary exact
-pins and explicit tags retain their selector; trusted official records can
-refresh from the catalog during bulk synchronization, as with
-[`plugins update --all`](/cli/plugins#update).
+Integrity, compatibility, trust, install-policy, and capability-consent failures
+do not trigger fallback. Availability fallback warnings do not fail the core
+update. Ordinary exact versions and explicit non-`latest` tags retain their selector.
+Doctor can refresh a stale official runtime plugin that is bound to the current
+OpenClaw release cohort. That repair stays on the recorded registry, verifies
+the replacement artifact, and records its exact version if the npm install was
+previously pinned.
 
 <Warning>
 If an exact pinned npm plugin update resolves to an artifact whose integrity differs from the stored install record, `openclaw update` aborts that plugin artifact update instead of installing it. Reinstall or update the plugin explicitly only after verifying you trust the new artifact.

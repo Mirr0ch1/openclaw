@@ -135,8 +135,9 @@ suite.define(() => {
           await gateway.resolveDeferred("update.run", HANDOFF_STARTED_RESPONSE);
           await gateway.closeLatest(1012, "managed update handoff");
 
-          await page.getByText("The Gateway is restarting", { exact: false }).waitFor();
-          await page.screenshot({ path: path.join(artifactDir, "3-restarting.png") });
+          await page.getByText("Disconnected from the Gateway", { exact: false }).waitFor();
+          await page.getByText("openclaw gateway status --deep", { exact: false }).waitFor();
+          await page.screenshot({ path: path.join(artifactDir, "3-disconnected.png") });
 
           // The replacement Gateway reports the installed revision, so the
           // operator gets a result instead of a silently reverted banner. The

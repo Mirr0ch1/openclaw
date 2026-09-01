@@ -182,7 +182,7 @@ export async function runPackageInstallUpdate(params: {
     root: packageUpdate.verifiedPackageRoot ?? params.root,
     reason: packageUpdate.failedStep ? packageUpdate.failedStep.name : undefined,
     before: { version: beforeVersion },
-    after: { version: packageUpdate.afterVersion ?? beforeVersion },
+    after: { version: packageUpdate.afterVersion },
     steps: packageUpdate.steps,
     recovery: packageUpdate.recovery,
     durationMs: Date.now() - params.startedAt,

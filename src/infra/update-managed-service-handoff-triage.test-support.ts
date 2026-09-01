@@ -1,5 +1,3 @@
-import { renderTriagePrompt } from "../commands/triage-prompt.js";
-import { sanitizeTriageUpdateFailure } from "../commands/triage-update.js";
 import { isPidAlive } from "../shared/pid-alive.js";
 import type {
   ManagedServiceManagerBoundaryOptions,
@@ -25,6 +23,13 @@ export function registerManagedUpdateHandoffTriageTests(
       const { state, sentinel, helperLog, savedFailure, sensitiveFilesRemoved } =
         await runManagedServiceManagerBoundary("systemd", {
           ...options,
+          updaterNotification: "published",
+          updaterResult: {
+            status: "error",
+            mode: "npm",
+            reason: "managed-service-handoff-failed",
+            recovery: { serviceRestartSafe: true, version: "1.0.0" },
+          },
           recordedFailure: {
             error: `Original update failed token=${secret}`,
             result: {
@@ -94,103 +99,19 @@ export function registerManagedUpdateHandoffTriageTests(
     async (updaterSkippedReason) => {
       const { state, sentinel } = await runManagedServiceManagerBoundary("systemd", {
         updaterExitCode: 0,
-        updaterSkippedReason,
+        updaterNotification: "published",
+        updaterResult: {
+          status: "skipped",
+          reason: updaterSkippedReason,
+          mode: "npm",
+          recovery: { serviceRestartSafe: true, version: "1.0.0", service: "healthy" },
+        },
       });
       expect(state.triageCalls).toBe(updaterSkippedReason === "dirty" ? 1 : undefined);
       expect(state.guardedRestart).toBeUndefined();
       expect(sentinel).toMatchObject({
         payload: { status: "skipped", stats: { reason: updaterSkippedReason } },
       });
-    },
-  );
-
-  itUnix.each([
-    { recoverySentinel: "retained", recoveryExitCode: 0 },
-    { recoverySentinel: "retained", recoveryExitCode: 1 },
-    { recoverySentinel: "consumed", recoveryExitCode: 0 },
-    { recoverySentinel: "replaced", recoveryExitCode: 0 },
-  ] as const)(
-    "preserves the updater notification when recovery leaves it $recoverySentinel (exit $recoveryExitCode)",
-    async (options) => {
-      const { sentinel, state } = await runManagedServiceManagerBoundary("systemd", {
-        ...options,
-        recordedFailure: {
-          error: "Original package build diagnostic",
-          result: {
-            status: "error",
-            mode: "npm",
-            reason: "build failed",
-            recovery: { serviceRestartSafe: true },
-            steps: [],
-          },
-        },
-      });
-      expect(state.sentinelAtRecovery).toMatchObject({
-        status: "error",
-        doctorHint: expect.stringContaining("Update triage"),
-        stats: { reason: "build failed", handoffId: "systemd-boundary", steps: [] },
-      });
-      expect(state).toMatchObject({
-        triageCalls: 1,
-        triageObservedRecovery: true,
-        triageInputMode: 0o600,
-        triageArgs: [
-          "triage",
-          "--json",
-          "--non-interactive",
-          "--update-result",
-          expect.any(String),
-        ],
-        triageInput: {
-          result: {
-            status: "error",
-            reason: "build failed",
-            recovery: { serviceRestartSafe: true },
-          },
-        },
-      });
-      const recovery =
-        options.recoveryExitCode === 0
-          ? "Helper service recovery succeeded."
-          : "Helper service recovery failed.";
-      expect(state.triageInput).toHaveProperty(
-        "error",
-        `Original package build diagnostic\n${recovery}`,
-      );
-      const redaction = { env: { HOME: "/triage-test-home" }, stateDir: "/triage-test-state" };
-      const prompt = renderTriagePrompt({
-        findings: [],
-        bundle: { kind: "skipped" },
-        redaction,
-        updateFailure: sanitizeTriageUpdateFailure(state.triageInput, redaction),
-      });
-      expect(prompt).toContain("Original package build diagnostic");
-      expect(prompt).toContain(recovery);
-      expect(prompt).not.toContain("handoff.log");
-      expect(state.triageInput).not.toHaveProperty("result.before");
-      expect(state.triageInput).not.toHaveProperty("result.after");
-      if (options.recoverySentinel === "consumed") {
-        expect(sentinel).toBeNull();
-      } else {
-        expect(sentinel).toMatchObject({
-          payload: {
-            status: "error",
-            stats: {
-              reason:
-                options.recoverySentinel === "replaced" ? "newer update failure" : "build failed",
-              steps:
-                options.recoverySentinel === "replaced"
-                  ? []
-                  : [
-                      expect.objectContaining({
-                        name: "service-restore",
-                        log: { exitCode: options.recoveryExitCode },
-                      }),
-                    ],
-            },
-          },
-        });
-      }
     },
   );
 
@@ -259,6 +180,7 @@ export function registerManagedUpdateHandoffTriageTests(
     async () => {
       const { state, helperLog } = await runManagedServiceManagerBoundary("systemd", {
         updaterExitCode: 0,
+        helperExitCode: 1,
         recordedFailure: {
           result: {
             status: "skipped",

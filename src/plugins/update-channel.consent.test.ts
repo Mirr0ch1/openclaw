@@ -119,9 +119,9 @@ describe("channel migration artifact consent", () => {
     installers.npm.mockImplementation(install);
     installers.clawhub.mockImplementation(install);
     if (source === "fallback") {
-      installers.clawhub.mockResolvedValueOnce({
+      installers.npm.mockResolvedValueOnce({
         ok: false,
-        code: "package_not_found",
+        code: "npm_package_not_found",
         error: "not found",
       });
     }
@@ -146,9 +146,8 @@ describe("channel migration artifact consent", () => {
       externalizedBundledPluginBridges: [
         {
           bundledPluginId: pluginId,
-          preferredSource: source === "npm" ? "npm" : "clawhub",
-          npmSpec: packageName,
-          clawhubSpec: pluginId,
+          npmSpec: source === "clawhub" ? undefined : packageName,
+          clawhubSpec: `clawhub:${pluginId}`,
         },
       ],
       onCapabilityConsent: review === "absent" ? undefined : onCapabilityConsent,
@@ -165,7 +164,7 @@ describe("channel migration artifact consent", () => {
           version: "2.0.0",
           acceptedSurface: declared,
           acceptedSurfaceHash: computeDeclaredSurfaceHash(declared),
-          acceptedSurfaceIntegrity: source === "clawhub" ? "sha256-next" : "sha512-next",
+          acceptedSurfaceIntegrity: source === "npm" ? "sha512-next" : "sha256-next",
         });
         expect(result.summary.errors).toEqual([]);
       } else {

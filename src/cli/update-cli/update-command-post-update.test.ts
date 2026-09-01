@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   readConfig: vi.fn(),
   createServiceConfigIO: vi.fn(),
   readServiceState: vi.fn(),
-  restart: vi.fn(async () => undefined),
   restartService: vi.fn<typeof import("./update-command-service.js").maybeRestartService>(
     async () => true,
   ),
@@ -88,7 +87,6 @@ vi.mock("./restart-helper.js", () => ({
 vi.mock("./update-command-service.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./update-command-service.js")>()),
   maybeRestartService: mocks.restartService,
-  maybeRestartServiceAfterFailedMutableUpdate: mocks.restart,
   revalidateManagedGatewayServiceAfterUpdate: mocks.revalidateService,
 }));
 vi.mock("./update-command-result.js", async (importOriginal) => ({
@@ -414,6 +412,7 @@ describe("successful update finalization ordering", () => {
         json: true,
         windowsTaskAutoStartRecovery: {
           suspended: Promise.resolve(true),
+          beginMutation: () => {},
           restore,
           complete: () => {},
           interrupted: () => false,

@@ -10,6 +10,7 @@ import { isDefaultInstallIdentity } from "../config/paths.js";
 import { readGatewayServiceState, resolveGatewayService } from "../daemon/service.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { UPDATE_RUNNER_TIMEOUT_MS } from "../infra/update-runner-command.js";
+import { readCurrentGitUpdateRecovery } from "../infra/update-runner-git-recovery.js";
 import { runGatewayUpdate } from "../infra/update-runner.js";
 import type { UpdateRunResult } from "../infra/update-runner.js";
 import { runCommandWithTimeout } from "../process/exec.js";
@@ -141,8 +142,11 @@ export async function maybeOfferUpdateBeforeDoctor(params: {
         );
       } else if (inspection?.stopped) {
         await serviceLifecycle?.maybeRestartServiceAfterFailedMutableUpdate({
+          recovery: await readCurrentGitUpdateRecovery(updateRoot),
           preManagedServiceStop: inspection,
           jsonMode: false,
+          timeoutMs: UPDATE_RUNNER_TIMEOUT_MS,
+          invocationCwd: updateRoot,
         });
       }
       throw err;
@@ -171,8 +175,11 @@ export async function maybeOfferUpdateBeforeDoctor(params: {
         );
       } else if (result.recovery?.serviceRestartSafe === true) {
         await serviceLifecycle?.maybeRestartServiceAfterFailedMutableUpdate({
+          recovery: result.recovery,
           preManagedServiceStop: inspection,
           jsonMode: false,
+          timeoutMs: UPDATE_RUNNER_TIMEOUT_MS,
+          invocationCwd: updateRoot,
         });
       }
       return { updated: true, handled: false };
