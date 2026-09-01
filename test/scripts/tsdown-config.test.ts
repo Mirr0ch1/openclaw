@@ -6,7 +6,10 @@ import { createRequire, isBuiltin } from "node:module";
 import path from "node:path";
 import { build } from "tsdown";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { collectRootPackageExcludedExtensionDirs } from "../../scripts/lib/bundled-plugin-build-entries.mjs";
+import {
+  collectRootPackageExcludedExtensionDirs,
+  DOCKER_SELECTED_PLUGIN_BUILD_IDS_ENV,
+} from "../../scripts/lib/bundled-plugin-build-entries.mjs";
 import { publicPluginSdkEntrypoints } from "../../scripts/lib/plugin-sdk-entries.mts";
 import {
   TSDOWN_PACKAGE_CONFIG_GROUP,
@@ -14,6 +17,7 @@ import {
   TSDOWN_UNIFIED_DTS_CONFIG_GROUPS,
 } from "../../scripts/lib/tsdown-config-groups.mts";
 import { WORKER_DEPLOY_OPTIONAL_NATIVE_MODULE_ID } from "../../scripts/lib/worker-deploy-build-plugin.mts";
+import { importFreshModule } from "../../src/plugin-sdk/test-helpers/import-fresh.js";
 import buildConfigs from "../../tsdown.config.ts";
 import { createScriptTestHarness } from "./test-helpers.js";
 
@@ -89,11 +93,20 @@ if (loaded.length) assert(loaded[0].startsWith(path.dirname(rootDir) + path.sep)
 
 describe("tsdown config", () => {
   it.each([false, true])(
-    "runs the bundled memory store with only production dependencies (verbose=%s)",
+    "runs the Docker-selected memory store with only production dependencies (verbose=%s)",
     async (verbose) => {
       vi.stubEnv("OPENCLAW_BUILD_VERBOSE", verbose ? "1" : "0");
-      const selected = configs.find((config) => config.name === TSDOWN_UNIFIED_CONFIG_GROUP);
       const entryName = "extensions/memory-lancedb/lancedb-store";
+      const defaultConfig = configs.find((config) => config.name === TSDOWN_UNIFIED_CONFIG_GROUP);
+      expect(defaultConfig?.entry).not.toHaveProperty(entryName);
+      vi.stubEnv(DOCKER_SELECTED_PLUGIN_BUILD_IDS_ENV, "memory-lancedb");
+      // Selection is captured during config evaluation; keep the default graph untouched.
+      const { default: selectedConfigs } = await importFreshModule<
+        typeof import("../../tsdown.config.ts")
+      >(import.meta.url, `../../tsdown.config.ts?docker-memory-lancedb=${verbose}`);
+      const selected = selectedConfigs.find(
+        (config) => config.name === TSDOWN_UNIFIED_CONFIG_GROUP,
+      );
       const source = (selected?.entry as Record<string, string> | undefined)?.[entryName];
       expect(source).toBeDefined();
       const root = fs.realpathSync(createTempDir("openclaw-tsdown-memory-"));
@@ -366,12 +379,16 @@ describe("tsdown config", () => {
             recursive: true,
           });
           for (const name of Object.keys(dependencyManifest.optionalDependencies)) {
-            if (!name.startsWith("@openclaw/fs-safe-")) continue;
+            if (!name.startsWith("@openclaw/fs-safe-")) {
+              continue;
+            }
             let nativeSource: string;
             try {
               nativeSource = path.dirname(dependencyRequire.resolve(name));
             } catch (error) {
-              if ((error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") continue;
+              if ((error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") {
+                continue;
+              }
               throw error;
             }
             const destination = path.join(sourceRoot, "node_modules", name);
