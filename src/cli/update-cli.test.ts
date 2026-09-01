@@ -3793,6 +3793,12 @@ describe("update-cli", () => {
     });
     expect(defaultRuntime.exit).toHaveBeenCalledWith(1);
     expectNoSideEffects(serviceRestart, runRestartScript, runDaemonRestart);
+    expect(runUpdateFailureTriage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failure: expect.objectContaining({ result: jsonOutput }),
+        mode: "json",
+      }),
+    );
   });
 
   it("keeps json update output successful when post-core plugin updates warn", async () => {
@@ -5266,7 +5272,7 @@ describe("update-cli", () => {
   });
 
   it.each(["preparation", "final ancestry recheck"])(
-    "reports a Git service refusal during %s without an unsafe recovery verdict",
+    "reports a Git service refusal during %s without granting unverified recovery",
     async (phase) => {
       mockRunningManagedGateway();
       const preparations = mockGitUpdateAfterMutation();
@@ -5283,7 +5289,7 @@ describe("update-cli", () => {
         result: {
           status: "error",
           reason: "managed-service-preflight",
-          recovery: { serviceRestartSafe: true },
+          recovery: { serviceRestartSafe: false, reason: "runtime-verification-failed" },
           steps: [
             expect.objectContaining({
               stderrTail: expect.stringContaining(

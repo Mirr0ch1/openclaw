@@ -89,10 +89,7 @@ import {
   resolvePackageRuntimePreflight,
   type ManagedServiceRootRedirect,
 } from "./update-command-service-plan.js";
-import {
-  createAggregateErrorWithCause,
-  type UpdateCommandRecoveryState,
-} from "./update-command-service.js";
+import type { UpdateCommandRecoveryState } from "./update-command-service.js";
 import { withUpdateFailureTriage } from "./update-command-triage.js";
 
 const CLI_NAME = resolveCliName();
@@ -157,10 +154,10 @@ export async function updateCommand(opts: UpdateCommandOptions): Promise<void> {
         } else {
           failure = {
             error: failure
-              ? createAggregateErrorWithCause(
+              ? new AggregateError(
                   [failure.error, error],
                   `Update failed (${formatErrorMessage(failure.error)}) and Windows autostart recovery failed (${formatErrorMessage(error)})`,
-                  failure.error,
+                  { cause: failure.error },
                 )
               : error,
           };

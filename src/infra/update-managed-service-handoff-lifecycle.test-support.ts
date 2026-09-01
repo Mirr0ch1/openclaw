@@ -38,7 +38,7 @@ export type ManagedServiceManagerBoundaryOptions = {
   updaterSignal?: boolean;
   updaterNotification?: "published" | "consumed";
   gatewayHealth?: "ready" | "unready" | "wrong-version" | "wrong-build" | "exited";
-  updaterSkippedReason?: "dirty" | "already-current" | "managed-service-handoff-cancelled";
+  diagnosticReadFailure?: boolean;
   triageExitCode?: number;
   triageHang?: boolean;
   triageMissing?: boolean;

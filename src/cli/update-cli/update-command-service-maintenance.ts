@@ -244,14 +244,6 @@ export class UpdateCommandAbort extends Error {
   }
 }
 
-export function createAggregateErrorWithCause(
-  errors: unknown[],
-  message: string,
-  cause: unknown,
-): AggregateError {
-  return new AggregateError(errors, message, { cause });
-}
-
 function parsePositivePid(value: unknown): number | null {
   if (typeof value === "number") {
     return Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
@@ -595,10 +587,10 @@ export async function maybeStopManagedServiceBeforeMutableUpdate(params: {
       try {
         await windowsTaskAutoStartRecovery.restore();
       } catch (resumeErr) {
-        throw createAggregateErrorWithCause(
+        throw new AggregateError(
           [err, resumeErr],
           `Failed to stop the managed gateway (${String(err)}) and restore Windows Scheduled Task autostart (${String(resumeErr)})`,
-          err,
+          { cause: resumeErr },
         );
       } finally {
         windowsTaskAutoStartRecovery.complete();

@@ -49,7 +49,6 @@ import {
 } from "./update-command-service-recovery.js";
 
 export {
-  createAggregateErrorWithCause,
   maybeResumeWindowsTaskAutoStartAfterPackageUpdate,
   maybeRestartServiceAfterFailedMutableUpdate,
   maybeStopManagedServiceBeforeMutableUpdate,

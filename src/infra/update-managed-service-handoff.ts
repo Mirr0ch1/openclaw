@@ -1054,6 +1054,8 @@ async function runOwnedUpdateCommand(phase, commandArgv, timeoutMs) {
 async function collectUpdateFailureTriage() {
   try {
     if (!triageFailure || !ownsManagedUpdateLease()) return;
+    // Diagnostic reads share this boundary so they cannot bypass terminal cleanup.
+    captureFailedUpdateResult();
     appendLog("If triage is unavailable, run " + params.triageRecoveryCommand + " on the Gateway host.");
     // The helper and outer updater start from the same installation. Preserve
     // its complete export; absent exports have only the helper's observed failure.
@@ -1303,7 +1305,6 @@ async function collectUpdateFailureTriage() {
     clearTimeout(parentExitDeadline);
     // Recovery owns availability. Diagnostics run once only after its terminal
     // outcome, while this helper still owns the installation lease.
-    if (triageFailure) captureFailedUpdateResult();
     await collectUpdateFailureTriage();
     releaseManagedUpdateLease();
     process.stdin.destroy();

@@ -12,6 +12,26 @@ export function registerManagedUpdateHandoffTriageTests(
   itUnix: ReturnType<typeof import("vitest").it.runIf>,
   expect: typeof import("vitest").expect,
 ): void {
+  itUnix("keeps recovery and cleanup terminal when diagnostic reads fail", async () => {
+    const { state, sentinel, helperLog, sensitiveFilesRemoved } =
+      await runManagedServiceManagerBoundary("systemd", {
+        diagnosticReadFailure: true,
+        updaterNotification: "consumed",
+        updaterResult: {
+          status: "error",
+          mode: "npm",
+          reason: "build failed",
+          recovery: { serviceRestartSafe: true, version: "1.0.0" },
+        },
+      });
+    expect(state.restored).toBe(true);
+    expect(state.triageCalls).toBeUndefined();
+    expect(sentinel).toBeNull();
+    expect(sensitiveFilesRemoved).toBe(true);
+    expect(helperLog).toContain("update triage could not complete");
+    expect(helperLog).toContain("managed update helper completed code=7");
+  });
+
   itUnix.each([
     { triageExitCode: 7, triageHang: false, triageMissing: false },
     { triageExitCode: 0, triageHang: true, triageMissing: false },
