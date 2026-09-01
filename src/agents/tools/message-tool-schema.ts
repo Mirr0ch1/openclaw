@@ -143,7 +143,14 @@ function buildSendSchema(options: {
     effect: Type.Optional(Type.String({ description: "Alias for effectId." })),
     media: Type.Optional(
       Type.String({
-        description: "Media URL/path. data: use buffer.",
+        description:
+          "Single media URL/path. For multiple media use mediaUrls (or attachments). data: use buffer.",
+      }),
+    ),
+    mediaUrls: Type.Optional(
+      Type.Array(Type.String(), {
+        description:
+          "Multiple media URLs/paths; sent together when the channel supports grouped media, otherwise as individual attachments.",
       }),
     ),
     filename: Type.Optional(Type.String()),

@@ -30,6 +30,7 @@ import {
   type TelegramApiContext,
 } from "./send-context.js";
 import { isTelegramVoiceMessagesForbiddenError } from "./send-error-predicates.js";
+import { sendTelegramMediaAlbum } from "./send-media-group.js";
 import { createTelegramTextSender } from "./send-message-text.js";
 import type { TelegramSendOpts, TelegramSendResult } from "./send-message-types.js";
 import { prepareTelegramOutbound, reportTelegramProviderDelivery } from "./send-outbound.js";
@@ -131,6 +132,10 @@ async function sendMessageTelegramWithContext(
     }
   };
   const mediaUrl = opts.mediaUrl?.trim();
+  const mediaUrls = (opts.mediaUrls ?? [])
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+  const allMediaUrls = mediaUrls.length > 0 ? mediaUrls : mediaUrl ? [mediaUrl] : [];
   const mediaMaxBytes =
     opts.maxBytes ??
     (typeof account.config.mediaMaxMb === "number" ? account.config.mediaMaxMb : 100) * 1024 * 1024;
@@ -228,9 +233,11 @@ async function sendMessageTelegramWithContext(
     }
   }
 
-  if (mediaUrl) {
+  // Sends a single media attachment (photo/document/animation/audio/video/voice)
+  // following the established per-media delivery semantics.
+  const sendSingleMedia = async (singleMediaUrl: string): Promise<TelegramSendResult> => {
     const media = await loadWebMedia(
-      mediaUrl,
+      singleMediaUrl,
       buildOutboundMediaLoadOptions({
         maxBytes: mediaMaxBytes,
         mediaAccess: opts.mediaAccess,
@@ -462,6 +469,46 @@ async function sendMessageTelegramWithContext(
           chatId: resolvedChatId,
           ...(mediaDeliveryResult?.receipt ? { receipt: mediaDeliveryResult.receipt } : {}),
         };
+  };
+
+  if (allMediaUrls.length > 0) {
+    if (allMediaUrls.length === 1) {
+      return await sendSingleMedia(allMediaUrls[0]!);
+    }
+    const albumResult = await sendTelegramMediaAlbum(
+      {
+        cfg,
+        account,
+        ownerAgentId,
+        api,
+        chatId,
+        preparedThreadParams,
+        sender,
+        singleUseReplyTo,
+        replyMarkup,
+        mediaMaxBytes,
+        textMode,
+        tableMode,
+        reportDelivery,
+        recordDeliveredPromptContext,
+        shouldSendTelegramImageAsPhoto,
+        sendChunkedText,
+        opts,
+      },
+      allMediaUrls,
+      text,
+    );
+    if (albumResult) {
+      return albumResult;
+    }
+    // The media group path is not applicable (mixed/non-album media types, count
+    // outside 2-10, or the group request failed); fall back to sending each media
+    // attachment as its own message with the established per-media semantics.
+    let lastResult: TelegramSendResult | undefined;
+    for (const entry of allMediaUrls) {
+      lastResult = await sendSingleMedia(entry);
+    }
+    return lastResult!;
   }
 
   if (!text || !text.trim()) {

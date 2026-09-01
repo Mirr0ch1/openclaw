@@ -419,6 +419,20 @@ export async function sendTelegramPayloadMessages(params: {
     return { messageId: String(replyToMessageId), chatId: params.to };
   }
 
+  // Multiple media can be grouped into a single Telegram album; hand the full
+  // media list to the send layer, which decides album eligibility (2-10 photos/
+  // videos) and falls back to per-media sends otherwise. A single album call is
+  // first and final, so implicit reply targets stay on it rather than being
+  // consumed for a per-media sequence.
+  if (mediaUrls.length >= 2 && !payload.videoAsNote) {
+    return await params.send(params.to, text, {
+      ...payloadOpts,
+      ...projectionOptions(true),
+      mediaUrls,
+      buttons,
+    });
+  }
+
   // Telegram allows reply_markup on media; attach buttons only to the first send.
   return await sendPayloadMediaSequenceOrFallback({
     text,

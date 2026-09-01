@@ -317,7 +317,7 @@ export function createTelegramPreparedSender(config: {
       sender: delivery.sender,
     };
   };
-  return { parts, accept, fail, sendText, sendMedia };
+  return { parts, accept, fail, sendText, sendMedia, request };
 }
 
 export type TelegramPreparedSender = ReturnType<typeof createTelegramPreparedSender>;

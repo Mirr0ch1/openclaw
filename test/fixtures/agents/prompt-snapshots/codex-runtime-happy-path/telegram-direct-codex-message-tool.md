@@ -239,8 +239,8 @@ This is the deterministic model-bound layer stack OpenClaw can snapshot for the 
     "roughTokens": 0
   },
   "dynamicToolsJson": {
-    "chars": 56379,
-    "roughTokens": 14095
+    "chars": 56718,
+    "roughTokens": 14180
   },
   "openClawDeveloperInstructions": {
     "chars": 3224,
@@ -251,8 +251,8 @@ This is the deterministic model-bound layer stack OpenClaw can snapshot for the 
     "roughTokens": 6793
   },
   "totalWithDynamicToolsJson": {
-    "chars": 83551,
-    "roughTokens": 20888
+    "chars": 83890,
+    "roughTokens": 20973
   },
   "userInputText": {
     "chars": 863,
@@ -648,11 +648,18 @@ Full JSON: `codex-dynamic-tools.telegram-direct.json`
           "type": "boolean"
         },
         "media": {
-          "description": "Media URL/path. data: use buffer.",
+          "description": "Single media URL/path. For multiple media use mediaUrls (or attachments). data: use buffer.",
           "type": "string"
         },
+        "mediaUrls": {
+          "description": "Multiple media URLs/paths; sent together when the channel supports grouped media, otherwise as individual attachments.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "message": {
-          "description": "Text for action=\"send\". A send needs message or another send payload such as media, attachments, or presentation.",
+          "description": "Text for action=\"send\". A send needs message or another send payload such as media, mediaUrls, attachments, or presentation.",
           "type": "string"
         },
         "mimeType": {

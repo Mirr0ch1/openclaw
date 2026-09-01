@@ -4733,6 +4733,147 @@ describe("sendMessageTelegram", () => {
   });
 });
 
+describe("sendMessageTelegram media group (album)", () => {
+  function mockMediaByUrl(url: string) {
+    return {
+      buffer: Buffer.from(url),
+      ...(url.endsWith(".pdf")
+        ? { contentType: "application/pdf", fileName: "doc.pdf" }
+        : {
+            contentType: "image/png",
+            fileName: url.split("/").pop() ?? "media",
+          }),
+    };
+  }
+
+  it("groups 2+ photos into a single sendMediaGroup album with caption on the first", async () => {
+    const chatId = "123";
+    const sendMediaGroup = vi.fn().mockResolvedValue([
+      { message_id: 100, chat: { id: chatId } },
+      { message_id: 101, chat: { id: chatId } },
+    ]);
+    const api = makeTelegramApiTestMock({ sendMediaGroup });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    const res = await sendMessageTelegram(chatId, "album caption", {
+      cfg: TELEGRAM_TEST_CFG,
+      token: "tok",
+      api,
+      mediaUrls: ["https://example.com/a.png", "https://example.com/b.png"],
+    });
+
+    const [actualChatId, inputs, params] = requireMockCall(
+      firstMockCall(sendMediaGroup, "sendMediaGroup call"),
+      "sendMediaGroup call",
+    );
+    expect(actualChatId).toBe(chatId);
+    expect(Array.isArray(inputs)).toBe(true);
+    const mediaInputs = inputs as Array<Record<string, unknown>>;
+    expect(mediaInputs.map(({ type }) => type)).toEqual(["photo", "photo"]);
+    expect(mediaInputs[0]?.caption).toBe("album caption");
+    expect(mediaInputs[0]?.parse_mode).toBe("HTML");
+    expect(mediaInputs[1]?.caption).toBeUndefined();
+    expect((mediaInputs[0]?.media as { filename?: string })?.filename).toBe("a.png");
+    expect((mediaInputs[1]?.media as { filename?: string })?.filename).toBe("b.png");
+    expect(params).toEqual({});
+    expect(res.messageId).toBe("100");
+    expect(res.chatId).toBe(chatId);
+  });
+
+  it("falls back to separate photo sends when a media group item is not album-compatible", async () => {
+    const chatId = "123";
+    const sendPhoto = vi.fn().mockResolvedValue({ message_id: 200, chat: { id: chatId } });
+    const sendDocument = vi.fn().mockResolvedValue({ message_id: 201, chat: { id: chatId } });
+    const api = makeTelegramApiTestMock({ sendPhoto, sendDocument });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    const res = await sendMessageTelegram(chatId, "caption", {
+      cfg: TELEGRAM_TEST_CFG,
+      token: "tok",
+      api,
+      mediaUrls: ["https://example.com/a.png", "https://example.com/doc.pdf"],
+    });
+
+    expect(sendPhoto).toHaveBeenCalledTimes(1);
+    expect(sendDocument).toHaveBeenCalledTimes(1);
+    expect(res.messageId).toBe("201");
+  });
+
+  it("propagates an ambiguous media group failure instead of resending per media", async () => {
+    const chatId = "123";
+    const sendMediaGroup = vi.fn().mockRejectedValue(new Error("500: Internal Server Error"));
+    const sendPhoto = vi.fn().mockResolvedValue({ message_id: 300, chat: { id: chatId } });
+    const api = makeTelegramApiTestMock({ sendMediaGroup, sendPhoto });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    await expect(
+      sendMessageTelegram(chatId, "caption", {
+        cfg: TELEGRAM_TEST_CFG,
+        token: "tok",
+        api,
+        mediaUrls: ["https://example.com/a.png", "https://example.com/b.png"],
+      }),
+    ).rejects.toThrow(/500: Internal Server Error/);
+
+    // Telegram sends are non-idempotent: an ambiguous post-dispatch failure must
+    // never trigger duplicate per-media sends.
+    expect(sendMediaGroup).toHaveBeenCalledTimes(1);
+    expect(sendPhoto).not.toHaveBeenCalled();
+  });
+
+  it("keeps every album message in delivery custody and receipts", async () => {
+    const chatId = "123";
+    const sendMediaGroup = vi.fn().mockResolvedValue([
+      { message_id: 100, chat: { id: chatId } },
+      { message_id: 101, chat: { id: chatId } },
+      { message_id: 102, chat: { id: chatId } },
+    ]);
+    const api = makeTelegramApiTestMock({ sendMediaGroup });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    const res = await sendMessageTelegram(chatId, "album caption", {
+      cfg: TELEGRAM_TEST_CFG,
+      token: "tok",
+      api,
+      mediaUrls: [
+        "https://example.com/a.png",
+        "https://example.com/b.png",
+        "https://example.com/c.png",
+      ],
+    });
+
+    expect(res.messageId).toBe("100");
+    expect(res.receipt?.primaryPlatformMessageId).toBe("100");
+    expect(res.receipt?.platformMessageIds).toEqual(["100", "101", "102"]);
+    expect(res.receipt?.parts).toHaveLength(3);
+  });
+
+  it("uses the single-media path for a single mediaUrls entry", async () => {
+    const chatId = "123";
+    const sendPhoto = vi.fn().mockResolvedValue({ message_id: 400, chat: { id: chatId } });
+    const api = makeTelegramApiTestMock({ sendPhoto });
+
+    mockLoadedMedia({ contentType: "image/png", fileName: "a.png" });
+
+    const res = await sendMessageTelegram(chatId, "caption", {
+      cfg: TELEGRAM_TEST_CFG,
+      token: "tok",
+      api,
+      mediaUrls: ["https://example.com/a.png"],
+    });
+
+    expectMediaSendCall(firstMockCall(sendPhoto, "send photo call"), "send photo call", chatId, {
+      caption: "caption",
+      parse_mode: "HTML",
+    });
+    expect(res.messageId).toBe("400");
+  });
+});
+
 describe("reactMessageTelegram", () => {
   it.each([
     {
