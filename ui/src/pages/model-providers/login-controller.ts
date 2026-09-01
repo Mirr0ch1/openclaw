@@ -21,6 +21,7 @@ type ModelProviderLoginControllerOptions = {
 
 export class ModelProviderLoginController implements ReactiveController {
   private state: ModelSetupWizardState = { phase: "idle" };
+  private mode: "auth" | "prepare" = "auth";
   private value: unknown;
   private cardId: string | null = null;
   // Keep sign-in disabled until terminal status confirms that shared Gateway
@@ -59,6 +60,7 @@ export class ModelProviderLoginController implements ReactiveController {
       return;
     }
     this.cardId = cardId;
+    this.mode = option.mode === "login" ? "auth" : "prepare";
     this.options.setMessage(cardId, null);
     void this.runner
       .start(
@@ -86,7 +88,7 @@ export class ModelProviderLoginController implements ReactiveController {
 
   render() {
     return renderModelSetupWizard({
-      mode: "auth",
+      mode: this.mode,
       state: this.state,
       refreshWarning: null,
       value: this.value,

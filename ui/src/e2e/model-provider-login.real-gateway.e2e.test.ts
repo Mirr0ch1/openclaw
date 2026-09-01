@@ -11,17 +11,6 @@ import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts"
 
 const DEFAULT_MODEL = "openai/gpt-5.6-luna";
 const syntheticApiCredential = ["sk", "test", "control", "ui", "import"].join("-");
-const syntheticAccountId = ["test", "account", "id"].join("-");
-const syntheticAuthClaim = ["https://api.openai.com", "auth"].join("/");
-const syntheticEmail = ["test", "example.test"].join("@");
-const syntheticProfileClaim = ["https://api.openai.com", "profile"].join("/");
-const syntheticRefreshToken = "test-token";
-
-function fakeJwt(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
-  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  return `${header}.${body}.placeholder`;
-}
 const captureProof = process.env.OPENCLAW_CAPTURE_UI_PROOF === "1";
 
 const suite = createControlUiE2eSuite({
@@ -60,16 +49,8 @@ suite.define(() => {
         await writeFile(
           path.join(codexHome, "auth.json"),
           `${JSON.stringify({
-            auth_mode: "chatgpt",
+            auth_mode: "api_key",
             OPENAI_API_KEY: syntheticApiCredential,
-            tokens: {
-              access_token: fakeJwt({
-                [syntheticAuthClaim]: { chatgpt_account_id: syntheticAccountId },
-                [syntheticProfileClaim]: { email: syntheticEmail },
-              }),
-              refresh_token: syntheticRefreshToken,
-              account_id: syntheticAccountId,
-            },
           })}\n`,
           { mode: 0o600 },
         );
@@ -77,6 +58,7 @@ suite.define(() => {
           agents: {
             defaults: {
               model: { primary: DEFAULT_MODEL },
+              modelPolicy: { allow: [DEFAULT_MODEL] },
               workspace: state.workspaceDir,
             },
             entries: { main: { workspace: state.workspaceDir } },
@@ -127,7 +109,6 @@ suite.define(() => {
 
             const signIn = page.getByRole("button", { name: "Sign in with OpenAI API Key" });
             await signIn.waitFor();
-            const configBeforeLogin = await readFile(state.configPath, "utf8");
             await signIn.click();
             // Source mode lazily transforms the migration owner before the real Gateway finishes.
             await page
@@ -152,7 +133,14 @@ suite.define(() => {
                   }),
                 ],
               ]);
-            expect(await readFile(state.configPath, "utf8")).toBe(configBeforeLogin);
+            expect(JSON.parse(await readFile(state.configPath, "utf8"))).toMatchObject({
+              agents: {
+                defaults: {
+                  model: { primary: DEFAULT_MODEL },
+                  modelPolicy: { allow: [DEFAULT_MODEL, "openai/*"] },
+                },
+              },
+            });
 
             if (artifactDir) {
               await page.screenshot({
@@ -165,10 +153,11 @@ suite.define(() => {
                 `${JSON.stringify(
                   {
                     authChoice: "openai-api-key",
-                    configUnchanged: true,
                     credentialPersisted: true,
                     defaultModel: DEFAULT_MODEL,
+                    defaultModelUnchanged: true,
                     gateway: "real",
+                    providerModelsEnabled: true,
                     provider: "openai",
                     secureInputShown: false,
                   },

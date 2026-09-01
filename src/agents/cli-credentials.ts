@@ -296,6 +296,18 @@ function parseCodexApiKeyCredential(
   return key ? { type: "api_key", provider: "openai", key } : null;
 }
 
+/** Reads the file-backed API key only when Codex selected API-key auth. */
+export function readCodexCliAuthFileApiKey(options?: {
+  codexHome?: string;
+  env?: NodeJS.ProcessEnv;
+}): CodexCliApiKeyCredential | null {
+  const codexHome = resolveCodexCliHomePath(options?.codexHome, options?.env);
+  const raw = loadJsonFileThroughSymlink(path.join(codexHome, CODEX_CLI_AUTH_FILENAME));
+  return raw && typeof raw === "object"
+    ? parseCodexApiKeyCredential(raw as Record<string, unknown>)
+    : null;
+}
+
 function readCliOauthTokenFields(
   data: Record<string, unknown>,
 ): { access: string; refresh: string; expires: number } | null {
@@ -396,13 +408,9 @@ export function readCodexCliActiveApiKey(options?: {
   }
 
   const candidates: CodexCliApiKeyCredential[] = [];
-  const authPath = path.join(codexHome, CODEX_CLI_AUTH_FILENAME);
-  const raw = loadJsonFileThroughSymlink(authPath);
-  if (raw && typeof raw === "object") {
-    const fileCredential = parseCodexApiKeyCredential(raw as Record<string, unknown>);
-    if (fileCredential) {
-      candidates.push(fileCredential);
-    }
+  const fileCredential = readCodexCliAuthFileApiKey({ codexHome });
+  if (fileCredential) {
+    candidates.push(fileCredential);
   }
   const keychainRecord = readCodexKeychainAuthRecord({
     codexHome,

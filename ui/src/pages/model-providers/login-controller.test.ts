@@ -1,4 +1,4 @@
-import type { ReactiveControllerHost } from "lit";
+import { render, type ReactiveControllerHost } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { ModelProviderLoginController } from "./login-controller.ts";
@@ -192,5 +192,32 @@ describe("ModelProviderLoginController", () => {
         text: "Configured",
       }),
     );
+  });
+
+  it("renders setup choices with prepare-mode copy", () => {
+    const request = vi.fn(async (_method: string, params?: { sessionId?: string }) => ({
+      sessionId: params?.sessionId,
+      done: true,
+      status: "done",
+    }));
+    const controller = new ModelProviderLoginController(
+      { addController: vi.fn(), requestUpdate: vi.fn() } as unknown as ReactiveControllerHost,
+      {
+        getClient: () => ({ request }) as unknown as GatewayBrowserClient,
+        getAgentId: () => "main",
+        canStart: () => true,
+        refresh: vi.fn(async () => undefined),
+        setMessage: vi.fn(),
+      },
+    );
+
+    controller.start("vllm", VLLM_SETUP_OPTION);
+    const container = document.createElement("div");
+    render(controller.render(), container);
+
+    expect(container.querySelector("openclaw-modal-dialog")?.getAttribute("label")).toBe(
+      "Local model setup",
+    );
+    expect(container.textContent).toContain("Starting local model setup…");
   });
 });

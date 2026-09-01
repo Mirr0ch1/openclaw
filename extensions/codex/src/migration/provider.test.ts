@@ -1000,7 +1000,7 @@ describe("buildCodexMigrationProvider", () => {
     );
   });
 
-  it("keeps combined Codex OAuth and API-key credentials distinct", async () => {
+  it("ignores an inactive Codex API key when ChatGPT auth is selected", async () => {
     const fixture = await createCodexFixture();
     const accessToken = fakeJwt({
       "https://api.openai.com/auth": { chatgpt_account_id: "acct_combined" },
@@ -1036,17 +1036,14 @@ describe("buildCodexMigrationProvider", () => {
     expect(findItem(plan.items, "auth:openai")).toMatchObject({
       details: { credentialKind: "oauth" },
     });
-    expect(findItem(plan.items, "auth:openai:api-key")).toMatchObject({
-      details: { credentialKind: "api_key" },
-    });
+    expect(plan.items.some((item) => item.id === "auth:openai:api-key")).toBe(false);
 
     const result = await provider.apply(ctx, plan);
     expect(findItem(result.items, "auth:openai").status).toBe("migrated");
-    expect(findItem(result.items, "auth:openai:api-key").status).toBe("migrated");
     expect(loadTargetAuthStore(fixture).profiles).toMatchObject({
       "openai:account-acct_combined": { type: "oauth", provider: "openai" },
-      "openai:codex-import": { type: "api_key", provider: "openai", key: "sk-combined" },
     });
+    expect(loadTargetAuthStore(fixture).profiles["openai:codex-import"]).toBeUndefined();
   });
 
   it("reports late-created Codex API key config auth profile conflicts before writing", async () => {

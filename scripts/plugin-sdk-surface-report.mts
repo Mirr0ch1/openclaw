@@ -331,7 +331,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: canonical diagnostic flag checker through its focused subpath.
       // +2: focused provider-auth routes for shipped auth ordering and provider-map lookup.
       // +1: provider-owned CLI credential import declaration.
-      4356,
+      // +1: mode-aware Codex API-key reader for provider-owned credential import.
+      4357,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -438,7 +439,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: manifest-owned plugin capability secret availability guard.
       // +1: canonical diagnostic flag checker through its focused subpath.
       // +2: focused provider-auth routes for shipped auth ordering and provider-map lookup.
-      2593,
+      // +1: mode-aware Codex API-key reader for provider-owned credential import.
+      2594,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
