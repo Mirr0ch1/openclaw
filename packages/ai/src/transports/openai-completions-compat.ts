@@ -159,7 +159,8 @@ function resolveOpenAICompletionsCompatDefaults(
     requiresReasoningContentOnAssistantMessages: isDeepSeek || isXiaomi,
     requiresNonEmptyUserOrAssistantMessage: isModelStudioLike,
     cacheControlFormat:
-      isModelStudioLike || (provider === "openrouter" && modelId?.startsWith("anthropic/") === true)
+      (isModelStudioLike && endpointClass !== "custom") ||
+      (provider === "openrouter" && modelId?.startsWith("anthropic/") === true)
         ? "anthropic"
         : undefined,
     sessionAffinityFormat: isOpenRouterLike ? "openrouter" : "openai",

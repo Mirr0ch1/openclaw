@@ -126,7 +126,9 @@ function resolveTestCapabilities(
       ? "moonshot"
       : provider === "openai" || provider === "azure-openai"
         ? "openai-family"
-        : (provider ?? "unknown");
+        : provider === "qwen" || provider === "dashscope"
+          ? "modelstudio"
+          : (provider ?? "unknown");
   const usesConfiguredBaseUrl = endpointClass !== "default";
   const usesKnownNativeOpenAIEndpoint =
     endpointClass === "openai-public" ||
@@ -521,6 +523,7 @@ describe("OpenAI-compatible completions compatibility", () => {
       expected: "anthropic",
     },
     { provider: "custom", baseUrl: "https://proxy.example/v1", expected: undefined },
+    { provider: "qwen", baseUrl: "https://proxy.example/v1", expected: undefined },
     { provider: "moonshot", baseUrl: "https://api.moonshot.ai/v1", expected: undefined },
   ])("defaults cache markers for $provider at $baseUrl", ({ provider, baseUrl, expected }) => {
     expect(
@@ -534,6 +537,37 @@ describe("OpenAI-compatible completions compatibility", () => {
       resolveOpenAICompletionsCompat(createModel({ provider: "modelstudio", compat })),
     ).toMatchObject(compat);
   });
+
+  it.each([undefined, "anthropic"] as const)(
+    "requires explicit cache format %s for Qwen behind a custom endpoint",
+    async (cacheControlFormat) => {
+      const model = createModel({
+        id: "qwen-plus",
+        provider: "qwen",
+        compat: { cacheControlFormat },
+      });
+      await streamOpenAICompletions(
+        model,
+        {
+          systemPrompt: "Follow instructions.",
+          messages: [userMessage],
+          tools: [
+            {
+              name: "lookup",
+              description: "Look up data",
+              parameters: { type: "object", properties: {} },
+            },
+          ],
+        },
+        { apiKey: "test", cacheRetention: "short" },
+      ).result();
+
+      expect(mockOpenAI.payloads).toHaveLength(1);
+      const markers = JSON.stringify(mockOpenAI.payloads[0]).match(/"cache_control":/g) ?? [];
+      expect(markers).toHaveLength(cacheControlFormat === "anthropic" ? 3 : 0);
+      expect(resolveOpenAICompletionsCompat(model).cacheControlFormat).toBe(cacheControlFormat);
+    },
+  );
 
   it.each([undefined, "short", "long", "none"] as const)(
     "sends Model Studio cache markers without OpenAI cache fields for retention %s",

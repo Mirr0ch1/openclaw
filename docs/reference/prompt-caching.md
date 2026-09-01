@@ -100,10 +100,12 @@ Source: `packages/ai/src/transports/anthropic-payload-policy.ts` (`resolveAnthro
 ### Model Studio / DashScope (Qwen)
 
 OpenClaw's direct-provider adapter enables explicit prompt caching by default on
-Model Studio / DashScope OpenAI-compatible routes, using
+native or default Model Studio / DashScope OpenAI-compatible routes, using
 `compat.cacheControlFormat: "anthropic"` and the
 existing system, last-tool, and last-conversation cache markers. Explicit model
-compat settings take precedence over detected defaults.
+compat settings take precedence over detected defaults. Custom proxy endpoints
+receive no automatic format default; set `compat.cacheControlFormat: "anthropic"`
+explicitly only when the proxy supports these markers.
 
 The embedded runner's boundary-aware Chat Completions transport does not yet apply
 these markers; detecting the format alone does not enable explicit caching there.
