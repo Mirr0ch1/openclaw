@@ -26,6 +26,8 @@ import {
   canPushToolProgress,
   handleApprovalEvent,
   handleCommandOutput,
+  handleCompactionEnd,
+  handleCompactionStart,
   handleItemEvent,
   handlePatchSummary,
   handlePlanUpdate,
@@ -271,12 +273,10 @@ export async function runTelegramDispatchTurn(turn: Turn) {
               turn.streamMode === "progress" ? turn.commentaryProgressEnabled : undefined,
             progressPreambleEnabled: turn.progressPreambleEnabled,
             commentaryPayloadsEnabled: turn.progressPreambleEnabled,
-            // Read the current getter after core freezes visibility so draft
-            // and durable commentary cannot both own the same preamble.
+            // The progress draft is the bounded commentary owner. Verbose may
+            // still select durable tool output, but never a second preamble lane.
             shouldDeliverCommentaryPayloads:
-              turn.streamMode === "progress" && turn.commentaryProgressEnabled
-                ? () => turn.verboseProgressActive()
-                : undefined,
+              turn.progressPreambleEnabled === true ? () => false : undefined,
             reasoningPayloadsEnabled: turn.durableReasoningPayloadsEnabled,
             onToolStart: (payload) => handleToolStart(turn, payload),
             onItemEvent: (payload) => handleItemEvent(turn, payload),
@@ -303,19 +303,10 @@ export async function runTelegramDispatchTurn(turn: Turn) {
             },
             onCommandOutput: (payload) => handleCommandOutput(turn, payload),
             onPatchSummary: (payload) => handlePatchSummary(turn, payload),
-            onCompactionStart: turn.statusReactionController
-              ? async () => {
-                  await turn.statusReactionController?.setCompacting();
-                  return false;
-                }
-              : undefined,
-            onCompactionEnd: turn.statusReactionController
-              ? async () => {
-                  turn.statusReactionController?.cancelPending();
-                  await turn.statusReactionController?.setThinking();
-                  return false;
-                }
-              : undefined,
+            onCompactionStart: isRoomEvent
+              ? undefined
+              : async () => await handleCompactionStart(turn),
+            onCompactionEnd: isRoomEvent ? undefined : async () => await handleCompactionEnd(turn),
             onModelSelected,
           },
         }),

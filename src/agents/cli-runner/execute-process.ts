@@ -118,6 +118,7 @@ export async function executeCliProcess(params: {
         onAssistantDelta: params.events.emitCliAssistantDelta,
         onThinkingDelta: params.events.emitCliThinkingDelta,
         onThinkingProgress: params.events.emitCliThinkingProgress,
+        onCompaction: params.events.emitCliCompaction,
         onToolUseStart: params.events.emitParsedToolUseStart,
         onToolResult: params.events.emitParsedToolResult,
         onDisplayToolUseStart: params.events.emitCliDisplayToolUseStart,

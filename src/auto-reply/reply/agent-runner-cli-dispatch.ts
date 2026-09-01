@@ -442,6 +442,8 @@ type RunCliAgentWithLifecycleParams = {
   onAssistantText?: (text: string) => Promise<boolean | void>;
   onReasoningText?: (payload: ReasoningTextPayload) => Promise<void>;
   onReasoningProgress?: (payload: ReasoningProgressPayload) => Promise<void>;
+  onCompactionStart?: GetReplyOptions["onCompactionStart"];
+  onCompactionEnd?: GetReplyOptions["onCompactionEnd"];
   onToolEvent?: (payload: CliToolEventPayload) => Promise<void>;
   onCommentaryText?: (payload: CommentaryTextPayload) => Promise<void>;
   onPlanUpdate?: GetReplyOptions["onPlanUpdate"];
@@ -580,6 +582,27 @@ async function runCliAgentWithLifecycleInternal(
     deliver: params.onReasoningProgress,
     startOrder: progressStartOrder,
   });
+  const compactionBridge = createAgentEventBridge<"start" | "end">({
+    runId: params.runId,
+    suppressed: params.suppressAssistantBridge,
+    startOrder: progressStartOrder,
+    deliver: async (phase) => {
+      if (phase === "start") {
+        await params.onCompactionStart?.();
+      } else {
+        await params.onCompactionEnd?.();
+      }
+    },
+    read: (evt) => {
+      if (evt.stream !== "compaction") {
+        return undefined;
+      }
+      if (evt.data.phase === "start") {
+        return "start";
+      }
+      return evt.data.phase === "end" && evt.data.completed === true ? "end" : undefined;
+    },
+  });
   const toolBridge = createToolEventBridge({
     runId: params.runId,
     suppressed: params.suppressAssistantBridge,
@@ -608,6 +631,7 @@ async function runCliAgentWithLifecycleInternal(
     assistantBridge,
     reasoningBridge,
     reasoningProgressBridge,
+    compactionBridge,
     toolBridge,
     commentaryBridge,
     planBridge,

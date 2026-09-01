@@ -258,7 +258,7 @@ jobs:
   run_mock_parity:
     name: Run QA Lab mock parity lane
     needs: [validate_selected_ref]
-    if: inputs.expected_sha == '' || inputs.run_mock_parity
+    if: (inputs.expected_sha == '' || inputs.run_mock_parity) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
     env:
@@ -442,7 +442,7 @@ jobs:
   run_live_matrix:
     name: Run Matrix live QA lane
     needs: [authorize_actor, validate_selected_ref]
-    if: inputs.expected_sha == '' || inputs.run_matrix
+    if: (inputs.expected_sha == '' || inputs.run_matrix) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 90
     concurrency:
@@ -746,7 +746,7 @@ jobs:
   run_live_discord:
     name: Run Discord live QA lane with Convex leases
     needs: [authorize_actor, validate_selected_ref]
-    if: inputs.expected_sha == '' || inputs.run_discord
+    if: (inputs.expected_sha == '' || inputs.run_discord) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     environment: qa-live-shared
@@ -832,7 +832,7 @@ jobs:
   run_live_whatsapp:
     name: Run WhatsApp live QA lane with Convex leases
     needs: [authorize_actor, validate_selected_ref]
-    if: inputs.expected_sha == '' || inputs.run_whatsapp
+    if: (inputs.expected_sha == '' || inputs.run_whatsapp) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     concurrency:
@@ -911,7 +911,7 @@ jobs:
   run_live_slack:
     name: Run Slack live QA lane with Convex leases
     needs: [authorize_actor, validate_selected_ref]
-    if: inputs.expected_sha == '' || inputs.run_slack
+    if: (inputs.expected_sha == '' || inputs.run_slack) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
     environment: qa-live-shared

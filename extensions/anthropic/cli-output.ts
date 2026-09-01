@@ -168,6 +168,8 @@ function hasClaudeRawToolInvocation(text: string): boolean {
 
 /** Reject malformed terminal Claude results before the generic CLI runner accepts them as prose. */
 export const parseClaudeCliJsonlEvent: CliBackendParseJsonlEvent = (line) => {
+  const mightContainCompactionStatus =
+    line.includes("compacting") || line.includes("compact_result");
   const mightContainRawToolProtocol =
     (line.includes("<invoke") ||
       line.includes("\\u003cinvoke") ||
@@ -175,7 +177,7 @@ export const parseClaudeCliJsonlEvent: CliBackendParseJsonlEvent = (line) => {
     (line.includes("<parameter") ||
       line.includes("\\u003cparameter") ||
       line.includes("\\u003Cparameter"));
-  if (!mightContainRawToolProtocol) {
+  if (!mightContainCompactionStatus && !mightContainRawToolProtocol) {
     return null;
   }
 
@@ -185,8 +187,20 @@ export const parseClaudeCliJsonlEvent: CliBackendParseJsonlEvent = (line) => {
   } catch {
     return null;
   }
+  if (!isRecord(parsed)) {
+    return null;
+  }
+  if (parsed.compact_result === "success" || parsed.compact_result === "failed") {
+    return {
+      kind: "compaction",
+      phase: "end",
+      completed: parsed.compact_result === "success",
+    };
+  }
+  if (parsed.type === "system" && parsed.subtype === "status") {
+    return parsed.status === "compacting" ? { kind: "compaction", phase: "start" } : null;
+  }
   if (
-    !isRecord(parsed) ||
     parsed.type !== "result" ||
     typeof parsed.result !== "string" ||
     !hasClaudeRawToolInvocation(parsed.result)

@@ -302,6 +302,8 @@ export type CliBackendJsonlUsage = {
 export type CliBackendParsedJsonlEvent =
   | { kind: "text"; text: string }
   | { kind: "thinking"; text: string }
+  | { kind: "compaction"; phase: "start" }
+  | { kind: "compaction"; phase: "end"; completed: boolean }
   | {
       kind: "toolStart";
       toolCallId: string;

@@ -49,6 +49,20 @@ type TelegramProgressDraftState = {
   streamReasoningInProgressDraft: boolean;
 };
 
+const TELEGRAM_COMPACTION_PROGRESS_ID = "context-compaction";
+
+function buildTelegramCompactionProgressLine(completed: boolean): ChannelProgressDraftLine {
+  const label = completed ? "Compaction complete" : "Compacting context...";
+  return {
+    id: TELEGRAM_COMPACTION_PROGRESS_ID,
+    kind: "item",
+    icon: "🧹",
+    label,
+    text: `🧹 ${label}`,
+    prefix: false,
+  };
+}
+
 export function createProgressState(
   config: TurnConfig,
   draftState: TelegramProgressDraftState,
@@ -191,14 +205,30 @@ export async function handleToolStart(
   return await progressPromise;
 }
 
+export async function handleCompactionStart(turn: Turn): Promise<boolean> {
+  const progress = turn.progressCompositor.pushToolProgress(
+    buildTelegramCompactionProgressLine(false),
+    { startImmediately: true },
+  );
+  await turn.statusReactionController?.setCompacting();
+  return await progress;
+}
+
+export async function handleCompactionEnd(turn: Turn): Promise<boolean> {
+  const progress = turn.progressCompositor.pushToolProgress(
+    buildTelegramCompactionProgressLine(true),
+    { startImmediately: true },
+  );
+  turn.statusReactionController?.cancelPending();
+  await turn.statusReactionController?.setThinking();
+  return await progress;
+}
+
 export async function handleItemEvent(
   turn: Turn,
   payload: CallbackPayload<"onItemEvent">,
 ): Promise<boolean> {
   if (payload.kind === "preamble") {
-    if (turn.verboseProgressActive()) {
-      return false;
-    }
     let rendered = false;
     if (turn.streamMode === "progress") {
       rendered = await turn.progressCompositor.pushPreambleHeadline(payload.progressText, {

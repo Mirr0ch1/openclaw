@@ -449,6 +449,9 @@ async function deliverTelegramProgressModeFinalAnswer(
   bindPendingFinalDelivery?: <T extends ReplyPayload>(payload: T) => T,
 ): Promise<LaneDeliveryResult> {
   const afterAcceptedDraft = turn.answerLane.stream?.hasConsumedReplyTarget?.() === true;
+  // Seal pending preview updates before the durable final send. This bounds
+  // final latency to one in-flight edit and prevents stale progress overtaking it.
+  await turn.answerLane.stream?.discard?.();
   if (payload.isError === true) {
     await teardownProgressWindow(turn);
     const delivered = await sendPayload(turn, applyTextToPayload(payload, text), {

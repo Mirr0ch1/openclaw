@@ -95,6 +95,8 @@ export type CliThinkingProgress = {
   progressTokens: number;
 };
 
+export type CliCompactionDelta = { phase: "start" } | { phase: "end"; completed: boolean };
+
 /** Tool-call start event reconstructed from CLI stream output. */
 export type CliToolUseStartDelta = {
   toolCallId: string;
@@ -119,6 +121,7 @@ export type CliJsonlStreamingParserOptions = {
   onAssistantDelta: (delta: CliStreamingDelta) => void;
   onThinkingDelta?: (delta: CliThinkingDelta) => void;
   onThinkingProgress?: (progress: CliThinkingProgress) => void;
+  onCompaction?: (delta: CliCompactionDelta) => void;
   onToolUseStart?: (delta: CliToolUseStartDelta) => void;
   onToolResult?: (delta: CliToolResultDelta) => void;
   onDisplayToolUseStart?: (delta: CliToolUseStartDelta) => void;

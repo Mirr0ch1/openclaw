@@ -112,6 +112,8 @@ export async function createTelegramQaTransportAdapter(
     updateCount: 0,
   };
   const accountId = options.sutAccountId?.trim() || "sut";
+  const directMessageOnly = options.transportPolicy?.directMessageOnly === true;
+  let nativeChatId = Number(credentialLease.payload.groupId);
   let logicalConversationId = credentialLease.payload.groupId;
   let logicalConversationKind: "channel" | "direct" | "group" = "channel";
   const nativeMessageIds = new Map<string, number>();
@@ -147,7 +149,7 @@ export async function createTelegramQaTransportAdapter(
     observerState.updateCount += 1;
     observerState.relevantUpdateKinds.add(update.kind);
     if (
-      update.chatId !== Number(credentialLease.payload.groupId) ||
+      update.chatId !== nativeChatId ||
       update.senderId !== Number(credentialLease.payload.sutBotId)
     ) {
       observerState.filteredCount += 1;
@@ -171,12 +173,13 @@ export async function createTelegramQaTransportAdapter(
     apiProxy = await skillRuntime.startApiProxy(leaseHealth);
     await apiProxy.drainUpdates(restored.sutToken);
     userbot = await TelegramUserbotDriver.start({
-      chatId: restored.groupId,
+      chatId: directMessageOnly ? `@${credentialLease.payload.sutUsername}` : restored.groupId,
       driverEnv: restored.driverEnv,
       leaseHealth,
       userDriverPath: skillRuntime.userDriverPath,
       onUpdate: observeUpdate,
     });
+    nativeChatId = userbot.chatId;
   } catch (error) {
     const cleanupErrors: unknown[] = [];
     try {
@@ -266,6 +269,7 @@ export async function createTelegramQaTransportAdapter(
     createGatewayConfig: () =>
       buildTelegramQaConfig({} as OpenClawConfig, {
         apiRoot: activeApiProxy.apiRoot,
+        directMessageOnly,
         groupId: credentialLease.payload.groupId,
         sutToken: credentialLease.payload.sutToken,
         testerUserId: credentialLease.payload.testerUserId,

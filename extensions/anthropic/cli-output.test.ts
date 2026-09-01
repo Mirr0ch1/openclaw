@@ -25,6 +25,42 @@ function parseResult(result: string) {
 }
 
 describe("Claude CLI output validation", () => {
+  it("projects Claude SDK compaction status lifecycle without inferring from the boundary", () => {
+    const backend = buildAnthropicCliBackend();
+    const parse = (event: Record<string, unknown>) =>
+      backend.parseJsonlEvent?.(JSON.stringify(event), {
+        backendId: backend.id,
+        backend: backend.config,
+      });
+
+    expect(parse({ type: "system", subtype: "status", status: "compacting" })).toEqual({
+      kind: "compaction",
+      phase: "start",
+    });
+    expect(
+      parse({
+        type: "system",
+        subtype: "status",
+        status: null,
+        compact_result: "success",
+      }),
+    ).toEqual({ kind: "compaction", phase: "end", completed: true });
+    expect(
+      parse({
+        type: "system",
+        subtype: "status",
+        status: null,
+        compact_result: "failed",
+      }),
+    ).toEqual({ kind: "compaction", phase: "end", completed: false });
+    expect(parse({ compact_result: "success" })).toEqual({
+      kind: "compaction",
+      phase: "end",
+      completed: true,
+    });
+    expect(parse({ type: "system", subtype: "compact_boundary" })).toBeNull();
+  });
+
   it("rejects mocked raw tool protocol returned as terminal assistant text", () => {
     expect(parseResult(MOCK_RAW_TOOL_OUTPUT)).toEqual({
       kind: "result",
