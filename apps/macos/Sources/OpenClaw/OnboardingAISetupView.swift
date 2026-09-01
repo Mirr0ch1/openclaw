@@ -274,7 +274,7 @@ struct OnboardingAISetupView: View {
                     Image(systemName: "info.circle")
                         .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("\(candidate.label) — \(candidate.detail)")
+                        Text(verbatim: "\(candidate.label) — \(candidate.detail)")
                             .font(.caption.weight(.semibold))
                         Text(candidate.reason)
                             .font(.caption)
@@ -666,7 +666,9 @@ struct OnboardingAISetupView: View {
 
             HStack(spacing: 12) {
                 if let minutes = deviceCode.expiresInMinutes {
-                    Label("Expires in \(minutes) minutes", systemImage: "clock")
+                    Label(
+                        String(format: String(localized: "Expires in %lld minutes"), minutes),
+                        systemImage: "clock")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
