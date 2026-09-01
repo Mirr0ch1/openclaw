@@ -93,6 +93,7 @@ function resolveTestEndpointClass(baseUrl: string | undefined): string {
     "llm.chutes.ai": "chutes-native",
     "api.z.ai": "zai-native",
     "api.deepseek.com": "deepseek-native",
+    "dashscope.aliyuncs.com": "modelstudio-native",
     "127.0.0.1": "local",
     localhost: "local",
   };
@@ -510,6 +511,74 @@ afterEach(() => {
 });
 
 describe("OpenAI-compatible completions compatibility", () => {
+  it.each([
+    { provider: "dashscope", baseUrl: "", expected: "anthropic" },
+    { provider: "modelstudio", baseUrl: "", expected: "anthropic" },
+    { provider: "qwen", baseUrl: "", expected: "anthropic" },
+    {
+      provider: "custom",
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      expected: "anthropic",
+    },
+    { provider: "custom", baseUrl: "https://proxy.example/v1", expected: undefined },
+    { provider: "moonshot", baseUrl: "https://api.moonshot.ai/v1", expected: undefined },
+  ])("defaults cache markers for $provider at $baseUrl", ({ provider, baseUrl, expected }) => {
+    expect(
+      resolveOpenAICompletionsCompat(createModel({ provider, baseUrl })).cacheControlFormat,
+    ).toBe(expected);
+  });
+
+  it("honors explicit cache compatibility settings on Model Studio", () => {
+    const compat = { cacheControlFormat: "anthropic", supportsLongCacheRetention: true } as const;
+    expect(
+      resolveOpenAICompletionsCompat(createModel({ provider: "modelstudio", compat })),
+    ).toMatchObject(compat);
+  });
+
+  it.each([undefined, "short", "long", "none"] as const)(
+    "sends Model Studio cache markers without OpenAI cache fields for retention %s",
+    async (cacheRetention) => {
+      const model = createModel({
+        id: "qwen-plus",
+        provider: "custom",
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      });
+      await streamOpenAICompletions(
+        model,
+        {
+          systemPrompt: "Follow instructions.",
+          messages: [userMessage, { ...userMessage, content: "latest", timestamp: 2 }],
+          tools: ["alpha", "zeta"].map((name) => ({
+            name,
+            description: name,
+            parameters: { type: "object", properties: {} },
+          })),
+        },
+        { apiKey: "test", sessionId: "session-test", cacheRetention },
+      ).result();
+
+      const cacheControl = cacheRetention === "none" ? undefined : { type: "ephemeral" };
+      const content = (text: string) =>
+        cacheControl ? [{ type: "text", text, cache_control: cacheControl }] : text;
+      const expectedPayload = {
+        model: "qwen-plus",
+        messages: [
+          { role: "system", content: content("Follow instructions.") },
+          { role: "user", content: "hello" },
+          { role: "user", content: content("latest") },
+        ],
+        stream: true,
+        tools: ["alpha", "zeta"].map((name) => ({
+          type: "function",
+          function: { name, description: name, parameters: { type: "object", properties: {} } },
+          cache_control: name === "zeta" ? cacheControl : undefined,
+        })),
+      };
+      // Compare wire JSON, where undefined cache fields must be omitted.
+      expect(JSON.stringify(mockOpenAI.payloads[0])).toBe(JSON.stringify(expectedPayload));
+    },
+  );
+
   it.each(legacyMatrixParityCases)(
     "maps former provider matrix case %s to canonical endpoint policy",
     (_name, overrides, legacyExpected, expected, divergence) => {
