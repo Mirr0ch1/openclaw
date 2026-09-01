@@ -9,6 +9,7 @@ import {
   makeRegistry,
   resetPluginAutoEnableTestState,
 } from "./plugin-auto-enable.test-helpers.js";
+import type { OpenClawConfig } from "./types.openclaw.js";
 
 const env = makeIsolatedEnv();
 
@@ -41,6 +42,61 @@ describe("applyPluginAutoEnable providers", () => {
 
     expect(result.config.plugins?.entries?.google?.enabled).toBe(true);
   });
+
+  it.each([
+    {
+      name: "Google auth profile",
+      config: {
+        auth: {
+          profiles: {
+            "google:default": {
+              provider: "google",
+              mode: "api_key",
+            },
+          },
+        },
+      },
+    },
+    {
+      name: "Google provider config",
+      config: {
+        models: {
+          providers: {
+            google: {
+              apiKey: "configured-google-key",
+            },
+          },
+        },
+      },
+    },
+    {
+      name: "Google Vertex auth profile",
+      config: {
+        auth: {
+          profiles: {
+            "google-vertex:default": {
+              provider: "google-vertex",
+              mode: "oauth",
+            },
+          },
+        },
+      },
+    },
+  ] satisfies Array<{ name: string; config: OpenClawConfig }>)(
+    "auto-enables the Google plugin from $name under a restrictive allowlist",
+    ({ config }) => {
+      const result = applyPluginAutoEnable({
+        config: {
+          ...config,
+          plugins: { allow: ["telegram"] },
+        },
+        env,
+      });
+
+      expect(result.config.plugins?.entries?.google?.enabled).toBe(true);
+      expect(result.config.plugins?.allow).toEqual(["telegram", "google"]);
+    },
+  );
 
   it("auto-enables provider plugins when plugin-owned web search config exists", () => {
     const result = applyPluginAutoEnable({
