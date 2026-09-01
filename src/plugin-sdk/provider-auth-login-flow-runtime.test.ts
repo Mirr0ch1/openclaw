@@ -51,6 +51,7 @@ describe("provider channel login runtime", () => {
     const runLoginFlow = vi.fn(async () => ({
       providerId: "xai",
       methodId: "oauth",
+      modelAccess: "already-visible" as const,
       profiles: [],
     }));
 
@@ -92,6 +93,7 @@ describe("provider channel login runtime", () => {
     const runLoginFlow = vi.fn(async () => ({
       providerId: "openai",
       methodId: "device-code",
+      modelAccess: "already-visible" as const,
       profiles: [],
     }));
     await codexChannelLoginRuntime.runDeviceLoginFlow({

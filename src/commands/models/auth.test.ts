@@ -468,6 +468,38 @@ describe("modelsAuthLoginCommand", () => {
     return originalConfig;
   }
 
+  function useXaiOAuthLogin(profileId = "xai:owner") {
+    runProviderAuth.mockResolvedValueOnce({
+      profiles: [
+        {
+          profileId,
+          credential: {
+            type: "oauth",
+            provider: "xai",
+            access: "xai-access",
+            refresh: "xai-refresh",
+            expires: Date.now() + 60_000,
+          },
+        },
+      ],
+    });
+    mocks.resolvePluginProvidersCore.mockReturnValue([
+      createProvider({ id: "xai", label: "xAI", run: runProviderAuth }),
+    ]);
+  }
+
+  function loginWithXai(agent?: string) {
+    return runModelsAuthLoginFlowCore({
+      provider: "xai",
+      method: "oauth",
+      ...(agent ? { agent } : {}),
+      credentialOnly: true,
+      config: currentConfig,
+      runtime: createRuntime(),
+      prompter: mocks.createClackPrompter(),
+    });
+  }
+
   it("runs plugin-owned openai login", async () => {
     const runtime = createRuntime();
 
@@ -976,6 +1008,14 @@ describe("modelsAuthLoginCommand", () => {
     const runtime = createRuntime();
     const runInteractiveLogin = vi.fn();
     const refreshAuthState = vi.fn(async () => undefined);
+    currentConfig = {
+      agents: {
+        defaults: {
+          model: { primary: "anthropic/claude-fable-5" },
+          modelPolicy: { allow: ["anthropic/claude-fable-5"] },
+        },
+      },
+    };
     mocks.resolvePluginProvidersCore.mockReturnValue([
       {
         id: "openai",
@@ -1018,6 +1058,14 @@ describe("modelsAuthLoginCommand", () => {
       { profileId: "openai:account-owner", provider: "openai", mode: "oauth" },
     ]);
     expect(result.imported).toBe(true);
+    expect(result.modelAccess).toBe("enabled");
+    expect(currentConfig.agents?.defaults?.model).toEqual({
+      primary: "anthropic/claude-fable-5",
+    });
+    expect(currentConfig.agents?.defaults?.modelPolicy?.allow).toEqual([
+      "anthropic/claude-fable-5",
+      "openai/*",
+    ]);
     expect(runtime.log).toHaveBeenCalledWith(
       "Auth profile: openai:account-owner (openai/oauth, imported)",
     );
@@ -1653,7 +1701,10 @@ describe("modelsAuthLoginCommand", () => {
   });
 
   it("keeps credential-only login from applying provider setup config", async () => {
-    currentConfig = { messages: { responsePrefix: "concurrent-edit" } };
+    currentConfig = {
+      agents: { defaults: { modelPolicy: { allow: [] } } },
+      messages: { responsePrefix: "concurrent-edit" },
+    };
     runProviderAuth.mockResolvedValueOnce({
       profiles: [
         {
@@ -1683,6 +1734,171 @@ describe("modelsAuthLoginCommand", () => {
     expect(mocks.updateConfig).not.toHaveBeenCalled();
     expect(currentConfig.messages?.responsePrefix).toBe("concurrent-edit");
     expect(mocks.upsertAuthProfileAfterLoginWithLock).toHaveBeenCalledOnce();
+  });
+
+  it("enables every model from an explicitly authorized provider without changing the default", async () => {
+    currentConfig = {
+      agents: {
+        defaults: {
+          model: { primary: "openai/gpt-5.6-sol" },
+          modelPolicy: { allow: ["openai/gpt-5.6-sol", "xai/reasoning/*"] },
+        },
+      },
+    };
+    runProviderAuth.mockResolvedValueOnce({
+      profiles: [
+        {
+          profileId: "xai:owner",
+          credential: {
+            type: "oauth",
+            provider: "xai",
+            access: "xai-access",
+            refresh: "xai-refresh",
+            expires: Date.now() + 60_000,
+          },
+        },
+      ],
+      configPatch: { agents: { defaults: { model: { primary: "xai/auto" } } } },
+      defaultModel: "xai/auto",
+    });
+    mocks.resolvePluginProvidersCore.mockReturnValue([
+      createProvider({ id: "xai", label: "xAI", run: runProviderAuth }),
+    ]);
+
+    const result = await runModelsAuthLoginFlowCore({
+      provider: "xai",
+      method: "oauth",
+      credentialOnly: true,
+      config: currentConfig,
+      runtime: createRuntime(),
+      prompter: mocks.createClackPrompter(),
+    });
+
+    expect(result.modelAccess).toBe("enabled");
+    expect(currentConfig.agents?.defaults?.model).toEqual({ primary: "openai/gpt-5.6-sol" });
+    expect(currentConfig.agents?.defaults?.modelPolicy?.allow).toEqual([
+      "openai/gpt-5.6-sol",
+      "xai/reasoning/*",
+      "xai/*",
+    ]);
+    expect(currentConfig.agents?.defaults).not.toHaveProperty("models");
+  });
+
+  it("keeps an existing provider wildcard without rewriting config", async () => {
+    currentConfig = {
+      agents: {
+        defaults: {
+          model: { primary: "openai/gpt-5.6-sol" },
+          modelPolicy: { allow: ["openai/gpt-5.6-sol", "xai/*"] },
+        },
+      },
+    };
+    useXaiOAuthLogin();
+
+    const result = await loginWithXai();
+
+    expect(result.modelAccess).toBe("already-visible");
+    expect(mocks.updateConfig).not.toHaveBeenCalled();
+    expect(currentConfig.agents?.defaults?.modelPolicy?.allow).toEqual([
+      "openai/gpt-5.6-sol",
+      "xai/*",
+    ]);
+  });
+
+  it("updates an agent-owned model policy instead of widening other agents", async () => {
+    currentConfig = {
+      agents: {
+        list: [
+          { id: "main", modelPolicy: { allow: ["openai/gpt-5.6-sol"] } },
+          { id: "coder", modelPolicy: { allow: ["anthropic/claude-fable-5"] } },
+        ],
+      },
+    };
+    mocks.resolveDefaultAgentId.mockReturnValue("coder");
+    mocks.resolveAgentDir.mockReturnValue("/tmp/openclaw/agents/coder");
+    useXaiOAuthLogin("xai:coder");
+
+    const result = await loginWithXai("coder");
+
+    expect(result.modelAccess).toBe("enabled");
+    expect(currentConfig.agents?.list?.[0]?.modelPolicy?.allow).toEqual(["openai/gpt-5.6-sol"]);
+    expect(currentConfig.agents?.list?.[1]?.modelPolicy?.allow).toEqual([
+      "anthropic/claude-fable-5",
+      "xai/*",
+    ]);
+  });
+
+  it("updates a keyed agent-owned model policy", async () => {
+    currentConfig = {
+      agents: {
+        defaults: { modelPolicy: { allow: ["openai/gpt-5.6-sol"] } },
+        entries: {
+          main: { modelPolicy: { allow: ["openai/gpt-5.6-sol"] } },
+          coder: { modelPolicy: { allow: ["anthropic/claude-fable-5"] } },
+        },
+      },
+    };
+    mocks.resolveDefaultAgentId.mockReturnValue("coder");
+    mocks.resolveAgentDir.mockReturnValue("/tmp/openclaw/agents/coder");
+    useXaiOAuthLogin("xai:coder");
+
+    const result = await loginWithXai("coder");
+
+    expect(result.modelAccess).toBe("enabled");
+    expect(currentConfig.agents?.entries?.main?.modelPolicy?.allow).toEqual(["openai/gpt-5.6-sol"]);
+    expect(currentConfig.agents?.entries?.coder?.modelPolicy?.allow).toEqual([
+      "anthropic/claude-fable-5",
+      "xai/*",
+    ]);
+    expect(currentConfig.agents?.defaults?.modelPolicy?.allow).toEqual(["openai/gpt-5.6-sol"]);
+  });
+
+  it("materializes legacy model visibility into the current policy", async () => {
+    currentConfig = {
+      agents: {
+        defaults: {
+          model: { primary: "openai/gpt-5.6-sol" },
+          models: { "openai/gpt-5.6-sol": {} },
+        },
+      },
+    };
+    useXaiOAuthLogin();
+
+    const result = await loginWithXai();
+
+    expect(result.modelAccess).toBe("enabled");
+    expect(currentConfig.agents?.defaults?.modelPolicy?.allow).toEqual([
+      "openai/gpt-5.6-sol",
+      "xai/*",
+    ]);
+  });
+
+  it("keeps saved credentials and reports when model policy adoption fails", async () => {
+    currentConfig = {
+      agents: {
+        defaults: { modelPolicy: { allow: ["openai/gpt-5.6-sol"] } },
+      },
+    };
+    mocks.updateConfig.mockRejectedValueOnce(new Error("config changed"));
+    useXaiOAuthLogin();
+    const note = vi.fn(async () => {});
+
+    const result = await runModelsAuthLoginFlowCore({
+      provider: "xai",
+      method: "oauth",
+      credentialOnly: true,
+      config: currentConfig,
+      runtime: createRuntime(),
+      prompter: { ...mocks.createClackPrompter(), note },
+    });
+
+    expect(result.modelAccess).toBe("failed");
+    expect(mocks.upsertAuthProfileAfterLoginWithLock).toHaveBeenCalledOnce();
+    expect(note).toHaveBeenCalledWith(
+      "Signed in to xai, but OpenClaw could not enable its models. Retry this sign-in after the current config change finishes.",
+      "Model access",
+    );
+    expect(currentConfig.agents?.defaults?.modelPolicy?.allow).toEqual(["openai/gpt-5.6-sol"]);
   });
 
   it("writes pasted Anthropic setup-tokens and logs the preference note", async () => {

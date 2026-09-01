@@ -98,6 +98,7 @@ function mockSuccessfulLoginFlow(profileId = "openai:owner"): void {
     return {
       providerId: "openai",
       methodId: "device-code",
+      modelAccess: "enabled",
       profiles: [{ profileId, provider: "openai", mode: "oauth" }],
     };
   });
@@ -133,7 +134,9 @@ describe("handleLoginCommand", () => {
 
     expect(result).toEqual({
       shouldContinue: false,
-      reply: { text: "OpenAI login complete. Try your request again now." },
+      reply: {
+        text: "OpenAI login complete. All OpenAI models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+      },
     });
     expect(onBlockReply).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -159,6 +162,7 @@ describe("handleLoginCommand", () => {
       return {
         providerId: "xai",
         methodId: "oauth",
+        modelAccess: "enabled",
         profiles: [{ profileId: "xai:owner", provider: "xai", mode: "oauth" }],
       };
     });
@@ -168,7 +172,9 @@ describe("handleLoginCommand", () => {
       true,
     );
 
-    expect(result?.reply?.text).toBe("xAI (Grok) login complete. Try your request again now.");
+    expect(result?.reply?.text).toBe(
+      "xAI (Grok) login complete. All xAI (Grok) models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+    );
     expect(onBlockReply).toHaveBeenCalledWith(
       expect.objectContaining({ text: expect.stringContaining("XAI-CODE") }),
     );
@@ -251,7 +257,9 @@ describe("handleLoginCommand", () => {
       });
       const result = await handleLoginCommand(params, true);
 
-      expect(result?.reply?.text).toBe("OpenAI login complete. Try your request again now.");
+      expect(result?.reply?.text).toBe(
+        "OpenAI login complete. All OpenAI models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+      );
       expect(onBlockReply).toHaveBeenCalledWith(
         expect.objectContaining({
           text: expect.stringContaining("https://auth.openai.com/device"),
@@ -355,6 +363,7 @@ describe("handleLoginCommand", () => {
     runModelsAuthLoginFlowMock.mockResolvedValue({
       providerId: "openai",
       methodId: "device-code",
+      modelAccess: "already-visible",
       profiles: [],
     });
 
@@ -372,6 +381,7 @@ describe("handleLoginCommand", () => {
     runModelsAuthLoginFlowMock.mockResolvedValue({
       providerId: "openai",
       methodId: "device-code",
+      modelAccess: "already-visible",
       profiles: [{ profileId: " ", provider: "openai", mode: "oauth" }],
     });
 
@@ -390,6 +400,7 @@ describe("handleLoginCommand", () => {
       providerId: " openai ",
       methodId: " device-code ",
       defaultModel: " openai/gpt-5.4 ",
+      modelAccess: " enabled ",
       profiles: [{ profileId: " openai:owner@example.com ", provider: " openai ", mode: "oauth" }],
     });
     const params = buildLoginParams("/login codex", {
@@ -403,7 +414,9 @@ describe("handleLoginCommand", () => {
 
     const result = await handleLoginCommand(params, true);
 
-    expect(result?.reply?.text).toBe("OpenAI login complete. Try your request again now.");
+    expect(result?.reply?.text).toBe(
+      "OpenAI login complete. All OpenAI models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+    );
     expect(params.sessionEntry?.authProfileOverride).toBe("openai:owner@example.com");
   });
 
@@ -559,7 +572,9 @@ describe("handleLoginCommand", () => {
 
     const result = await handleLoginCommand(params, true);
 
-    expect(result?.reply?.text).toBe("OpenAI login complete. Try your request again now.");
+    expect(result?.reply?.text).toBe(
+      "OpenAI login complete. All OpenAI models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+    );
     expect(params.sessionEntry).toBe(switchedEntry);
     expect(params.sessionEntry?.authProfileOverride).toBe("openai:old-owner@example.com");
     expect(params.sessionEntry?.providerOverride).toBe("anthropic");
@@ -607,6 +622,7 @@ describe("handleLoginCommand", () => {
             resolve({
               providerId: "openai",
               methodId: "device-code",
+              modelAccess: "already-visible",
               profiles: [],
             });
         }),
@@ -656,6 +672,7 @@ describe("handleLoginCommand", () => {
       .mockResolvedValueOnce({
         providerId: "openai",
         methodId: "device-code",
+        modelAccess: "already-visible",
         profiles: [],
       });
 

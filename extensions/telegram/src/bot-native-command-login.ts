@@ -192,7 +192,8 @@ export async function executeTelegramLoginCommand(params: {
       )?.profileId;
       terminalMessage = providerChannelLoginRuntime.formatComplete(
         loginChoice,
-        loginResult.imported,
+        loginResult.imported === true,
+        loginResult.modelAccess,
       );
       if (!nextProfileId) {
         terminalMessage = sessionSwitchFailedMessage;

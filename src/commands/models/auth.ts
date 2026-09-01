@@ -16,6 +16,7 @@ import {
 } from "@openclaw/normalization-core/string-coerce";
 import { styleSelectParams } from "../../../packages/terminal-core/src/prompt-select-styled-params.js";
 import { stylePromptMessage } from "../../../packages/terminal-core/src/prompt-style.js";
+import { resolveMutableAgentEntry } from "../../agents/agent-scope-config.js";
 import { resolveAgentWorkspaceDir } from "../../agents/agent-scope.js";
 import { removeProviderAuthProfilesWithLock } from "../../agents/auth-profiles.js";
 import {
@@ -26,12 +27,17 @@ import {
 import type { AuthProfileCredential } from "../../agents/auth-profiles/types.js";
 import { normalizeProviderId } from "../../agents/model-ref-shared.js";
 import { isCliProvider } from "../../agents/model-selection-cli.js";
+import {
+  AGENT_MODEL_POLICY_ALLOW_CONFIG_PATH,
+  resolveConfiguredModelPolicyAllow,
+} from "../../agents/model-selection-shared.js";
 import { resolveProviderIdForAuth } from "../../agents/provider-auth-aliases.js";
 import { resolveDefaultAgentWorkspaceDir } from "../../agents/workspace.js";
 import { formatCliCommand } from "../../cli/command-format.js";
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import { logConfigUpdated } from "../../config/logging.js";
 import { normalizeAgentModelRefForConfig } from "../../config/model-input.js";
+import { parseModelPolicyWildcardRef } from "../../config/model-policy-ref.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { isRemoteEnvironment } from "../../infra/remote-env.js";
 import {
@@ -111,6 +117,90 @@ const select = async <T>(params: Parameters<typeof clackSelect<T>>[0]) =>
   guardCancel(await clackSelect(styleSelectParams(params)));
 
 const MODELS_AUTH_STDIN_MAX_BYTES = 1024 * 1024;
+
+type ProviderModelAccessResult = "enabled" | "already-visible" | "failed";
+
+function providerModelPolicyNeedsUpdate(
+  policy: ReturnType<typeof resolveConfiguredModelPolicyAllow>,
+  provider: string,
+): boolean {
+  // Missing or empty policy already permits every model.
+  return Boolean(
+    provider &&
+    policy.refs.length > 0 &&
+    !policy.refs.some((entry) => parseModelPolicyWildcardRef(entry)?.key === `${provider}/*`),
+  );
+}
+
+function appendProviderModelPolicy(params: {
+  config: OpenClawConfig;
+  agentId: string;
+  provider: string;
+}): boolean {
+  const provider = normalizeProviderId(params.provider);
+  const policy = resolveConfiguredModelPolicyAllow({
+    cfg: params.config,
+    agentId: params.agentId,
+  });
+  if (!providerModelPolicyNeedsUpdate(policy, provider)) {
+    return false;
+  }
+  const allow = [...policy.refs, `${provider}/*`];
+  if (policy.configPath === AGENT_MODEL_POLICY_ALLOW_CONFIG_PATH) {
+    const entry = resolveMutableAgentEntry(params.config, params.agentId);
+    if (!entry) {
+      throw new Error(`Agent "${params.agentId}" no longer exists in the current config.`);
+    }
+    entry.modelPolicy = { ...entry.modelPolicy, allow };
+    return true;
+  }
+
+  params.config.agents ??= {};
+  params.config.agents.defaults ??= {};
+  params.config.agents.defaults.modelPolicy = {
+    ...params.config.agents.defaults.modelPolicy,
+    allow,
+  };
+  return true;
+}
+
+async function adoptProviderModelPolicy(params: {
+  provider: string;
+  agentId: string;
+  runtime: RuntimeEnv;
+  prompter: WizardPrompter;
+}): Promise<ProviderModelAccessResult> {
+  try {
+    const current = await loadValidConfigOrThrow();
+    const provider = normalizeProviderId(params.provider);
+    const policy = resolveConfiguredModelPolicyAllow({
+      cfg: current,
+      agentId: params.agentId,
+    });
+    if (!providerModelPolicyNeedsUpdate(policy, provider)) {
+      return "already-visible";
+    }
+    let changed = false;
+    await updateConfig((config) => {
+      changed = appendProviderModelPolicy({ ...params, config });
+      return config;
+    });
+    if (changed) {
+      logConfigUpdated(params.runtime);
+      return "enabled";
+    }
+    return "already-visible";
+  } catch (error) {
+    params.runtime.error(
+      `Provider sign-in succeeded, but model access could not be updated: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    await params.prompter.note(
+      `Signed in to ${params.provider}, but OpenClaw could not enable its models. Retry this sign-in after the current config change finishes.`,
+      "Model access",
+    );
+    return "failed";
+  }
+}
 
 async function readPipedStdin(): Promise<string> {
   const bytes = await readByteStreamWithLimit(process.stdin, {
@@ -431,7 +521,6 @@ async function persistProviderAuthResult(params: {
   credentialOnly?: boolean;
   env?: NodeJS.ProcessEnv;
   beforePersistentEffect?: () => void | Promise<void>;
-  refreshAuthState?: (agentId: string) => Promise<void>;
 }): Promise<ProviderAuthResult["profiles"]> {
   const defaultModel = params.result.defaultModel
     ? normalizeAgentModelRefForConfig(params.result.defaultModel)
@@ -531,8 +620,6 @@ async function persistProviderAuthResult(params: {
     logConfigUpdated(params.runtime);
   }
 
-  await (params.refreshAuthState ?? refreshRunningGatewayAuthState)(params.agentId);
-
   for (const profile of persistedProfiles) {
     params.runtime.log(
       `Auth profile: ${profile.profileId} (${profile.credential.provider}/${credentialMode(profile.credential)})`,
@@ -593,7 +680,11 @@ async function runProviderAuthMethod(params: {
   openUrl?: (url: string) => Promise<void>;
   beforePersistentEffect?: () => void | Promise<void>;
   refreshAuthState?: (agentId: string) => Promise<void>;
-}): Promise<{ result: ProviderAuthResult; profiles: ProviderAuthResult["profiles"] }> {
+}): Promise<{
+  result: ProviderAuthResult;
+  profiles: ProviderAuthResult["profiles"];
+  modelAccess: ProviderModelAccessResult;
+}> {
   params.signal?.throwIfAborted();
   const result = await params.method.run({
     config: params.config,
@@ -635,10 +726,19 @@ async function runProviderAuthMethod(params: {
     ...(params.beforePersistentEffect
       ? { beforePersistentEffect: params.beforePersistentEffect }
       : {}),
-    ...(params.refreshAuthState ? { refreshAuthState: params.refreshAuthState } : {}),
   });
+  const modelAccess =
+    persistedProfiles.length > 0
+      ? await adoptProviderModelPolicy({
+          provider: params.provider.id,
+          agentId: params.agentId,
+          runtime: params.runtime,
+          prompter: params.prompter,
+        })
+      : "failed";
+  await (params.refreshAuthState ?? refreshRunningGatewayAuthState)(params.agentId);
 
-  return { result, profiles: persistedProfiles };
+  return { result, profiles: persistedProfiles, modelAccess };
 }
 
 /** Runs an interactive provider setup-token auth flow. */
@@ -950,6 +1050,7 @@ export type ModelsAuthLoginFlowResult = {
   methodId: string;
   imported?: true;
   defaultModel?: string;
+  modelAccess: ProviderModelAccessResult;
   profiles: Array<{
     profileId: string;
     provider: string;
@@ -1126,6 +1227,12 @@ export async function runModelsAuthLoginFlowCore(
         `Credential import for provider "${selectedProvider.id}" returned provider "${importedCredential.provider}".`,
       );
     }
+    const modelAccess = await adoptProviderModelPolicy({
+      provider: selectedProvider.id,
+      agentId: context.agentId,
+      runtime: opts.runtime,
+      prompter,
+    });
     await (opts.refreshAuthState ?? refreshRunningGatewayAuthState)(context.agentId);
     if (importedCredential.configUpdated) {
       logConfigUpdated(opts.runtime);
@@ -1138,6 +1245,7 @@ export async function runModelsAuthLoginFlowCore(
       providerId: selectedProvider.id,
       methodId: chosenMethod.id,
       imported: true,
+      modelAccess,
       profiles: [
         {
           profileId: importedCredential.profileId,
@@ -1177,7 +1285,7 @@ export async function runModelsAuthLoginFlowCore(
     }
   }
 
-  const { result, profiles } = await runProviderAuthMethod({
+  const { result, profiles, modelAccess } = await runProviderAuthMethod({
     config: context.config,
     agentId: context.agentId,
     agentDir: context.agentDir,
@@ -1201,6 +1309,7 @@ export async function runModelsAuthLoginFlowCore(
     providerId: selectedProvider.id,
     methodId: chosenMethod.id,
     ...(result.defaultModel ? { defaultModel: result.defaultModel } : {}),
+    modelAccess,
     profiles: profiles.map((profile) => ({
       profileId: profile.profileId,
       provider: profile.credential.provider,

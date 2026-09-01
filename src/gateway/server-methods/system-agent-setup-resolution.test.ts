@@ -648,6 +648,33 @@ describe("models.authLogin.start", () => {
     expect(done).toEqual({ done: true, status: "done" });
   });
 
+  it("reports saved provider auth when model access could not be enabled", async () => {
+    modelsAuthLoginMocks.runModelsAuthLoginFlowCore.mockResolvedValueOnce({
+      providerId: "xai",
+      methodId: "oauth",
+      modelAccess: "failed",
+      profiles: [{ profileId: "xai:owner", provider: "xai", mode: "oauth" }],
+    });
+    const { context } = makeContext();
+    const { respond } = makeRespond();
+
+    await expectDefined(
+      modelsAuthLoginHandlers["models.authLogin.start"],
+      "models.authLogin.start handler",
+    )({
+      params: { sessionId: "model-access-failed", authChoice: "xai-oauth" },
+      respond,
+      context,
+    } as never);
+
+    await expect(callWizardNext(context, { sessionId: "model-access-failed" })).resolves.toEqual({
+      done: true,
+      status: "error",
+      error:
+        "Error: xAI OAuth sign-in succeeded, but OpenClaw could not enable its models. Retry after the current config change finishes.",
+    });
+  });
+
   it("rejects a stale provider choice before starting a wizard", async () => {
     modelsAuthLoginMocks.resolveManifestProviderAuthChoice.mockReturnValueOnce(undefined);
     const { wizardSessions, context } = makeContext();

@@ -313,11 +313,16 @@ function parseModelsAuthLoginFlowResult(value: unknown): ModelsAuthLoginFlowResu
     result.defaultModel === undefined
       ? undefined
       : parseRequiredString(result.defaultModel, "default model");
+  const modelAccess = parseRequiredString(result.modelAccess, "model access result");
+  if (modelAccess !== "enabled" && modelAccess !== "already-visible" && modelAccess !== "failed") {
+    throw new Error("Provider login returned an invalid model access result.");
+  }
   return {
     providerId,
     methodId,
     ...(result.imported === true ? { imported: true } : {}),
     ...(defaultModel ? { defaultModel } : {}),
+    modelAccess,
     profiles,
   };
 }
@@ -395,10 +400,21 @@ function formatProviderLoginCommand(choice: ProviderChannelLoginChoice): string 
   return `/login ${choice.command}`;
 }
 
-function formatProviderLoginComplete(choice: ProviderChannelLoginChoice, imported = false): string {
-  return imported
-    ? `${choice.providerLabel} login complete using your existing CLI sign-in. Try your request again now.`
-    : `${choice.providerLabel} login complete. Try your request again now.`;
+function formatProviderLoginComplete(
+  choice: ProviderChannelLoginChoice,
+  imported: boolean,
+  modelAccess: ModelsAuthLoginFlowResult["modelAccess"],
+): string {
+  const login = imported
+    ? `${choice.providerLabel} login complete using your existing CLI sign-in.`
+    : `${choice.providerLabel} login complete.`;
+  if (modelAccess === "failed") {
+    return `${login} Your credential is saved, but OpenClaw could not enable its models. Retry ${formatProviderLoginCommand(choice)} after the current config change finishes.`;
+  }
+  if (modelAccess === "enabled") {
+    return `${login} All ${choice.providerLabel} models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.`;
+  }
+  return `${login} Try your request again now.`;
 }
 
 function formatProviderLoginSessionSwitchFailed(

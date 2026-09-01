@@ -98,7 +98,10 @@ function registerLoginCommand(params: {
         ...nativeParams,
         telegramDeps: {
           ...nativeParams.telegramDeps,
-          runModelsAuthLoginFlow: params.loginFlow,
+          runModelsAuthLoginFlow: async (options) => {
+            const result = await params.loginFlow(options);
+            return { modelAccess: "already-visible", ...result };
+          },
           sendMessageTelegram,
         } as never,
       }),
@@ -198,6 +201,7 @@ describe("registerTelegramNativeCommands /login", () => {
       return {
         providerId: "xai",
         methodId: "oauth",
+        modelAccess: "enabled",
         profiles: [{ profileId: "xai:owner", provider: "xai", mode: "oauth" }],
       };
     });
@@ -223,7 +227,30 @@ describe("registerTelegramNativeCommands /login", () => {
       "URL: https://accounts.x.ai/oauth2/device",
     );
     expect(String(sendMessage.mock.calls[1]?.[1])).toBe(
-      "xAI (Grok) login complete. Try your request again now.",
+      "xAI (Grok) login complete. All xAI (Grok) models are enabled. Your default model is unchanged. Use /models to browse; the first list may still be loading.",
+    );
+  });
+
+  it("reports saved auth when provider model access could not be enabled", async () => {
+    const loginFlow = vi.fn(async () => ({
+      providerId: "xai",
+      methodId: "oauth",
+      modelAccess: "failed" as const,
+      profiles: [{ profileId: "xai:owner", provider: "xai", mode: "oauth" as const }],
+    }));
+    const { handler, sendMessage } = registerLoginCommand({
+      cfg: {
+        commands: { native: true, ownerAllowFrom: ["200"] },
+        agents: { list: [{ id: "main", default: true }] },
+      } as OpenClawConfig,
+      loginFlow,
+    });
+
+    await handler(createPrivateCommandContext({ match: "xai", userId: 200 }));
+
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    expect(String(sendMessage.mock.calls[0]?.[1])).toBe(
+      "xAI (Grok) login complete. Your credential is saved, but OpenClaw could not enable its models. Retry /login xai after the current config change finishes.",
     );
   });
 
@@ -641,6 +668,7 @@ describe("registerTelegramNativeCommands /login", () => {
       return {
         providerId: "openai",
         methodId: "device-code",
+        modelAccess: "already-visible",
         profiles: [
           { profileId: "openai:new-owner@example.com", provider: "openai", mode: "oauth" },
         ],
@@ -720,6 +748,7 @@ describe("registerTelegramNativeCommands /login", () => {
       return {
         providerId: "openai",
         methodId: "device-code",
+        modelAccess: "already-visible",
         profiles: [
           { profileId: "openai:new-owner@example.com", provider: "openai", mode: "oauth" },
         ],
@@ -765,6 +794,7 @@ describe("registerTelegramNativeCommands /login", () => {
       return {
         providerId: "openai",
         methodId: "device-code",
+        modelAccess: "already-visible",
         profiles: [
           { profileId: "openai:new-owner@example.com", provider: "openai", mode: "oauth" },
         ],
@@ -828,6 +858,7 @@ describe("registerTelegramNativeCommands /login", () => {
       return {
         providerId: "openai",
         methodId: "device-code",
+        modelAccess: "already-visible",
         profiles: [{ profileId: "openai:login-profile", provider: "openai", mode: "oauth" }],
       };
     });
@@ -879,6 +910,7 @@ describe("registerTelegramNativeCommands /login", () => {
     const runModelsAuthLoginFlow = vi.fn<TelegramLoginFlow>(async () => ({
       providerId: "openai",
       methodId: "device-code",
+      modelAccess: "already-visible",
       profiles: [{ profileId: "openai:owner@example.com", provider: "openai", mode: "oauth" }],
     }));
     const { handler } = registerLoginCommand({
@@ -933,6 +965,7 @@ describe("registerTelegramNativeCommands /login", () => {
     const runModelsAuthLoginFlow = vi.fn<TelegramLoginFlow>(async () => ({
       providerId: "openai",
       methodId: "device-code",
+      modelAccess: "already-visible",
       profiles: [{ profileId: "openai:new-owner@example.com", provider: "openai", mode: "oauth" }],
     }));
     const { handler, sendMessage } = registerLoginCommand({
@@ -962,6 +995,7 @@ describe("registerTelegramNativeCommands /login", () => {
     const runModelsAuthLoginFlow = vi.fn<TelegramLoginFlow>(async () => ({
       providerId: "openai",
       methodId: "device-code",
+      modelAccess: "already-visible",
       profiles: [],
     }));
     const { handler, sendMessage } = registerLoginCommand({
@@ -1009,6 +1043,7 @@ describe("registerTelegramNativeCommands /login", () => {
     const runModelsAuthLoginFlow = vi.fn<TelegramLoginFlow>(async () => ({
       providerId: "openai",
       methodId: "device-code",
+      modelAccess: "already-visible",
       profiles: [{ profileId: "openai:owner@example.com", provider: "openai", mode: "oauth" }],
     }));
     const { handler, sendMessage } = registerLoginCommand({

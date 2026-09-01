@@ -76,6 +76,11 @@ export const handlers: GatewayRequestHandlers = {
         if (result.profiles.length === 0) {
           throw new Error(`${choice.choiceLabel} did not return a credential profile.`);
         }
+        if (result.modelAccess === "failed") {
+          throw new Error(
+            `${choice.choiceLabel} sign-in succeeded, but OpenClaw could not enable its models. Retry after the current config change finishes.`,
+          );
+        }
       },
     });
   },
