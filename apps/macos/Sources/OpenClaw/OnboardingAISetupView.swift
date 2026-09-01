@@ -826,6 +826,8 @@ struct OnboardingErrorCard: View {
     var secondaryTitle: String?
     var secondary: (() -> Void)?
 
+    /// Keep retry required so Swift binds a lone trailing closure to the primary
+    /// action instead of the defaulted secondary action.
     init(
         title: String,
         message: String,
@@ -834,7 +836,7 @@ struct OnboardingErrorCard: View {
         retryTitle: String? = nil,
         secondaryTitle: String? = nil,
         secondary: (() -> Void)? = nil,
-        retry: (() -> Void)? = nil)
+        retry: (() -> Void)?)
     {
         self.title = title
         self.message = message
