@@ -3,8 +3,9 @@ import { defineConfig } from "vitest/config";
 import { loadPatternListFromEnv, narrowIncludePatternsForCli } from "./vitest.pattern-file.ts";
 import { sharedVitestConfig } from "./vitest.shared.config.ts";
 import { UiE2eSequencer } from "./vitest.ui-e2e.sequencer.ts";
+import { controlUiE2eTestGlobs } from "./vitest.ui-paths.mjs";
 
-const uiE2eIncludePatterns = ["ui/src/**/*.e2e.test.ts"];
+const uiE2eIncludePatterns = controlUiE2eTestGlobs;
 const uiE2eRealGatewayTestFiles = [
   "ui/src/e2e/agent-file-lifecycle.real-gateway.e2e.test.ts",
   "ui/src/e2e/control-ui-auth-transports.e2e.test.ts",

@@ -4,15 +4,16 @@ import { controlUiLocaleModulesPlugin } from "../../ui/config/control-ui-locales
 import { createScopedVitestConfig } from "./vitest.scoped-config.ts";
 import { jsdomOptimizedDeps } from "./vitest.shared.config.ts";
 import { uiIsolatedTestFiles } from "./vitest.ui-isolated-paths.mjs";
+import { controlUiE2eTestGlobs, controlUiTestGlobs } from "./vitest.ui-paths.mjs";
 
 // Explicit nameable return type: inference reaches vite-internal names (TS4058/TS4082).
 export function createUiVitestConfig(
   env?: Record<string, string | undefined>,
   options?: { includePatterns?: string[]; name?: string },
 ): ViteUserConfig {
-  const includePatterns = options?.includePatterns ?? ["ui/src/**/*.test.ts"];
+  const includePatterns = options?.includePatterns ?? controlUiTestGlobs;
   // Isolated files must never enter the shared module graph, including scoped runs.
-  const exclude = ["ui/src/**/*.e2e.test.ts", ...uiIsolatedTestFiles];
+  const exclude = [...controlUiE2eTestGlobs, ...uiIsolatedTestFiles];
   const config = createScopedVitestConfig(includePatterns, {
     deps: jsdomOptimizedDeps,
     environment: "jsdom",

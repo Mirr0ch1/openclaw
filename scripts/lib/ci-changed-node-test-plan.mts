@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { isPluginControlUiPath } from "../../test/vitest/vitest.ui-paths.mjs";
 import { detectChangedLanes } from "../changed-lanes.mts";
 import {
   buildVitestRunPlans,
@@ -429,6 +430,7 @@ function createChangedExtensionConfigShardsForPaths(changedPaths: string[], cwd:
   const relevantPaths = changedPaths.filter(
     (changedPath) =>
       changedPath.startsWith("extensions/") &&
+      !isPluginControlUiPath(changedPath) &&
       (existsSync(path.join(cwd, changedPath)) || !isTestFileTarget(changedPath)),
   );
   return createChangedExtensionConfigShards(resolveChangedExtensionRoots(relevantPaths));
@@ -501,11 +503,16 @@ export function createChangedNodeTestShards(
 
   const policyTargetsByPath = new Map(
     livePaths
-      .filter((changedPath) => !changedPath.startsWith("extensions/"))
+      .filter(
+        (changedPath) =>
+          !changedPath.startsWith("extensions/") || isPluginControlUiPath(changedPath),
+      )
       .map((changedPath) => [changedPath, resolvePolicyTestTargets([changedPath])]),
   );
   const regularLivePaths = livePaths.filter(
-    (changedPath) => !changedPath.startsWith("extensions/") && !isPolicyTestOwnedPath(changedPath),
+    (changedPath) =>
+      (!changedPath.startsWith("extensions/") || isPluginControlUiPath(changedPath)) &&
+      !isPolicyTestOwnedPath(changedPath),
   );
 
   // Workspace package consumers often use package specifiers, which the

@@ -75,6 +75,7 @@ import {
   isUiIsolatedTestFile,
   uiIsolatedTestFiles,
 } from "../test/vitest/vitest.ui-isolated-paths.mjs";
+import { isControlUiSourcePath, isPluginControlUiPath } from "../test/vitest/vitest.ui-paths.mjs";
 import {
   getUnitFastIsolatedTestFiles,
   getUnitFastTestFiles,
@@ -1914,7 +1915,7 @@ function isControlUiE2eTarget(relative: string) {
     relative === "ui/src/test-helpers/control-ui-e2e.ts" ||
     relative === "ui/src/e2e" ||
     relative.startsWith("ui/src/e2e/") ||
-    (relative.startsWith("ui/src/") && relative.endsWith(".e2e.test.ts"))
+    (isControlUiSourcePath(relative) && relative.endsWith(".e2e.test.ts"))
   );
 }
 
@@ -3215,7 +3216,7 @@ function shouldCombineSiblingTestWithImportGraph(changedPath: string) {
 }
 
 function shouldRouteChangedTargetWithoutImportGraph(changedPath: string) {
-  return changedPath.endsWith(".live.test.ts") || changedPath.startsWith("ui/src/");
+  return changedPath.endsWith(".live.test.ts") || isControlUiSourcePath(changedPath);
 }
 
 function resolvePromptSnapshotFixtureTargets(changedPath: string) {
@@ -3271,7 +3272,7 @@ function resolvePreciseChangedTestTargets(
     return [siblingTest];
   }
   if (shouldRouteChangedTargetWithoutImportGraph(changedPath)) {
-    return changedPath.startsWith("ui/src/") ? [changedPath] : null;
+    return isControlUiSourcePath(changedPath) ? [changedPath] : null;
   }
   if (options.skipImportGraph === true) {
     return null;
@@ -3426,7 +3427,7 @@ function classifyTarget(arg: string, cwd: string) {
   if (isUiIsolatedTestFile(relative)) {
     return "uiIsolated";
   }
-  if (isPathAtOrUnder(relative, "ui")) {
+  if (isPathAtOrUnder(relative, "ui") || isPluginControlUiPath(relative)) {
     return "ui";
   }
   if (relative.startsWith("src/tui/tui-pty-") || tuiPtyTestFiles.includes(relative)) {
@@ -3716,7 +3717,10 @@ function shouldUseWholeConfigTarget(kind: string, targetArg: string, cwd: string
   if (isTestFileTarget(relative)) {
     return false;
   }
-  return relative.startsWith("ui/src/");
+  if (isPluginControlUiPath(relative) && !isLikelyFileTarget(relative)) {
+    return false;
+  }
+  return isControlUiSourcePath(relative);
 }
 
 function createVitestArgs(

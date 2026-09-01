@@ -1,6 +1,7 @@
 // Ci Node Test Plan tests cover ci node test plan script behavior.
 import { existsSync, globSync, readdirSync } from "node:fs";
 import { isAbsolute, join, matchesGlob, relative, resolve } from "node:path";
+import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createChangedExtensionFallbackShards,
@@ -237,7 +238,11 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     const gatewayGroups = groups.filter((group) =>
       group.shard_name.startsWith("cache-warm:agentic-gateway-methods:"),
     );
-    expect(gatewayGroups.map((group) => group.configs[0]).toSorted()).toEqual([
+    expect(
+      gatewayGroups
+        .map((group) => expectDefined(group.configs[0], "gateway config"))
+        .toSorted((a, b) => a.localeCompare(b)),
+    ).toEqual([
       "test/vitest/vitest.gateway-methods-isolated.config.ts",
       "test/vitest/vitest.gateway-methods.config.ts",
     ]);
@@ -1863,6 +1868,16 @@ describe("scripts/lib/ci-node-test-plan.mts", () => {
     expect(shardNames).toContain("agentic-gateway-core-3");
     expect(shardNames).toContain("agentic-gateway-methods");
     expect(shardNames).toContain("agentic-plugin-sdk");
+  });
+
+  it("keeps changed native browser tests in UI jobs and out of extension fallback", () => {
+    const target = "extensions/workboard/browser/catalog.test.ts";
+    const shards = createChangedNodeTestShards([target]);
+    expect(shards).not.toBeNull();
+    expect(shards?.flatMap((shard) => shard.targets ?? shard.includePatterns ?? [])).toContain(
+      target,
+    );
+    expect(createChangedExtensionFallbackShards([target])).toEqual([]);
   });
 
   it("retains the changed host plugin test when the store-alias diff forces fallback", () => {

@@ -22,6 +22,7 @@ export type StreamGroupPart = Extract<
 type StreamMessageOptions = Pick<
   Parameters<typeof renderGroupedMessage>[2],
   | "sessionKey"
+  | "presented"
   | "boardProvider"
   | "agentId"
   | "runActive"

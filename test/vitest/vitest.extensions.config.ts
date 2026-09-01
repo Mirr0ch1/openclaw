@@ -26,6 +26,7 @@ import { whatsAppExtensionTestRoots } from "./vitest.extension-whatsapp-paths.mj
 import { zaloExtensionTestRoots } from "./vitest.extension-zalo-paths.mjs";
 import { loadPatternListFromEnv } from "./vitest.pattern-file.ts";
 import { createScopedVitestConfig } from "./vitest.scoped-config.ts";
+import { pluginControlUiPathGlob } from "./vitest.ui-paths.mjs";
 
 export const extensionCatchAllExcludedTestRoots = [
   activeMemoryExtensionTestRoots,
@@ -69,6 +70,7 @@ export function createExtensionsVitestConfig(
     // Some bundled plugins still run on the channel surface; keep those roots
     // out of the shared extensions lane.
     exclude: [
+      pluginControlUiPathGlob,
       ...extensionExcludedChannelTestGlobs,
       ...extensionCatchAllExcludedTestRoots.map(
         (root) => `${root.replace(/^extensions\//u, "")}/**`,
