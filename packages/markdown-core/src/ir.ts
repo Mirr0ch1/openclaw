@@ -1495,6 +1495,51 @@ function closeRemainingStyles(target: RenderTarget) {
   target.openStyles = [];
 }
 
+function appendSpans<T extends { start: number; end: number }>(
+  into: T[],
+  spans: T[],
+  offset: number,
+): void {
+  for (const span of spans) {
+    span.start += offset;
+    span.end += offset;
+    into.push(span);
+  }
+}
+
+/** Transfers a separately owned IR slice, including its metadata, into an accumulator. */
+export function appendMarkdownIR(target: MarkdownIR, source: MarkdownIR): void {
+  const offset = target.text.length;
+  target.text += source.text;
+  appendSpans(target.styles, source.styles, offset);
+  appendSpans(target.links, source.links, offset);
+  if (source.annotations?.length) {
+    appendSpans((target.annotations ??= []), source.annotations, offset);
+  }
+  for (const item of (source.listItems ?? []) as MarkdownListItemWithMetadata[]) {
+    for (const marker of [item.listMarker, item.taskMarker]) {
+      if (marker) {
+        marker.start += offset;
+        marker.end += offset;
+      }
+    }
+    // Source-coordinate metadata stays anchored to the authored Markdown.
+    for (const key of ["start", "end", "contentStart", "contentEnd"] as const) {
+      const value = item[key];
+      if (value !== undefined) {
+        item[key] = value + offset;
+      }
+    }
+    (target.listItems ??= []).push(item);
+  }
+  const sourceBlocks = (source as MarkdownIRWithMetadata).blocks;
+  if (sourceBlocks?.length) {
+    const blocks = (target as MarkdownIRWithMetadata).blocks ?? [];
+    appendSpans(blocks, sourceBlocks, offset);
+    attachBlockMetadata(target, blocks);
+  }
+}
+
 function sliceListMarker(
   marker: { start: number; end: number },
   start: number,
