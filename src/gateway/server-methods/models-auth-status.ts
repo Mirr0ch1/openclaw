@@ -124,10 +124,24 @@ export function invalidateModelAuthStatusCache(): void {
 /** Refresh transient Gateway auth owners after one durable credential mutation. */
 export async function refreshModelAuthStateAfterMutation(
   context: GatewayRequestContext,
-  operation: string,
+  operation: "login" | "logout",
+  agentId?: string,
 ): Promise<void> {
   invalidateModelAuthStatusCache();
   await refreshActiveProviderAuthRuntimeSnapshot();
+  if (operation === "login") {
+    // Login wakes the canonical full-catalog owner without making credential persistence wait
+    // for provider discovery. Publication updates every chat and channel picker in one event.
+    void context
+      .loadGatewayModelCatalogSnapshot({
+        ...(agentId ? { agentId } : {}),
+        readOnly: false,
+        refreshFullCatalog: true,
+      })
+      .catch((err: unknown) => {
+        log.warn(`provider catalog wake after login failed: ${formatForLog(err)}`);
+      });
+  }
   void warmCurrentProviderAuthStateOffMainThread(context.getRuntimeConfig()).catch(
     (err: unknown) => {
       log.warn(`provider auth state rewarm after ${operation} failed: ${formatForLog(err)}`);

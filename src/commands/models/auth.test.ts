@@ -540,6 +540,11 @@ describe("modelsAuthLoginCommand", () => {
       params: { refresh: true, agentId: "main" },
       timeoutMs: 3000,
     });
+    expect(mocks.callGateway).toHaveBeenCalledWith({
+      method: "models.list",
+      params: { refresh: true, view: "default", agentId: "main" },
+      timeoutMs: 3000,
+    });
   });
 
   it("executes only the manifest owner selected by a remote login choice", async () => {

@@ -599,6 +599,7 @@ describe("models.authLogin.start", () => {
     expect(modelsAuthLoginMocks.refreshModelAuthStateAfterMutation).toHaveBeenCalledWith(
       context,
       "login",
+      "research",
     );
     expect(session.cancel()).toBe(false);
   });

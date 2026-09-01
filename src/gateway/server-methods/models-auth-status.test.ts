@@ -131,6 +131,7 @@ import {
   aggregateRefreshableAuthStatus,
   invalidateModelAuthStatusCache,
   modelsAuthStatusHandlers,
+  refreshModelAuthStateAfterMutation,
   type ModelAuthLogoutResult,
   type ModelAuthStatusResult,
 } from "./models-auth-status.js";
@@ -1414,6 +1415,27 @@ describe("models.authStatus", () => {
     invalidateModelAuthStatusCache();
     await handler(createOptions());
     expect(mocks.buildAuthHealthSummary).toHaveBeenCalledTimes(2);
+  });
+
+  it("wakes full catalog publication after login without waiting for discovery", async () => {
+    const loadGatewayModelCatalogSnapshot = vi.fn(
+      () =>
+        new Promise<never>(() => {
+          // The assertion proves the auth refresh does not await catalog discovery.
+        }),
+    );
+    const context = {
+      getRuntimeConfig: mocks.getRuntimeConfig,
+      loadGatewayModelCatalogSnapshot,
+    } as unknown as GatewayRequestHandlerOptions["context"];
+
+    await refreshModelAuthStateAfterMutation(context, "login", "research");
+
+    expect(loadGatewayModelCatalogSnapshot).toHaveBeenCalledWith({
+      agentId: "research",
+      readOnly: false,
+      refreshFullCatalog: true,
+    });
   });
 
   it("does not publish usage captured before a concurrent logout", async () => {

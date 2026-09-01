@@ -71,7 +71,8 @@ export const handlers: GatewayRequestHandlers = {
             signal.throwIfAborted();
             session.lockCancellation();
           },
-          refreshAuthState: async () => await refreshModelAuthStateAfterMutation(context, "login"),
+          refreshAuthState: async (agentId) =>
+            await refreshModelAuthStateAfterMutation(context, "login", agentId),
         });
         if (result.profiles.length === 0) {
           throw new Error(`${choice.choiceLabel} did not return a credential profile.`);

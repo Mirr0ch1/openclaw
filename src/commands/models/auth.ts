@@ -125,6 +125,9 @@ const MODELS_AUTH_STDIN_MAX_BYTES = 1024 * 1024;
 
 type ProviderModelAccessResult = "enabled" | "already-visible" | "failed";
 
+const refreshRunningGatewayAfterLogin = async (agentId: string): Promise<void> =>
+  await refreshRunningGatewayAuthState(agentId, { refreshCatalog: true });
+
 function providerModelPolicyNeedsUpdate(
   policy: ReturnType<typeof resolveConfiguredModelPolicyAllow>,
   provider: string,
@@ -752,7 +755,7 @@ async function runProviderAuthMethod(params: {
           prompter: params.prompter,
         })
       : "failed";
-  await (params.refreshAuthState ?? refreshRunningGatewayAuthState)(params.agentId);
+  await (params.refreshAuthState ?? refreshRunningGatewayAfterLogin)(params.agentId);
 
   return { result, profiles: persistedProfiles, modelAccess };
 }
@@ -1249,7 +1252,7 @@ export async function runModelsAuthLoginFlowCore(
       runtime: opts.runtime,
       prompter,
     });
-    await (opts.refreshAuthState ?? refreshRunningGatewayAuthState)(context.agentId);
+    await (opts.refreshAuthState ?? refreshRunningGatewayAfterLogin)(context.agentId);
     if (importedCredential.configUpdated) {
       logConfigUpdated(opts.runtime);
     }
