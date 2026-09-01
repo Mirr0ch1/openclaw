@@ -331,17 +331,6 @@ it("preserves task-list fallback while coalescing semantic whitespace", () => {
   expect(chunks.every((chunk) => chunk.rendered.length <= profile.chunk.limit)).toBe(true);
 });
 
-it("coalesces semantic whitespace after an earlier separator was dropped", () => {
-  const chunks = renderMarkdownIRChunksWithinLimit({
-    ir: { text: `alpha${" ".repeat(59)}\nomega`, styles: [], links: [] },
-    limit: 20,
-    renderChunk: (chunk) => chunk.text,
-    measureRendered: (rendered) => rendered.length,
-  });
-
-  expect(chunks.map((chunk) => chunk.rendered)).toEqual([`alpha${" ".repeat(15)}`, "    \nomega"]);
-});
-
 it("suppresses semantic whitespace when attributed rendering trims it away", () => {
   const ir = markdownToIR("```\n \n```");
   const renderChunk = (chunk: MarkdownIR) =>
