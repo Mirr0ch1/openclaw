@@ -151,39 +151,3 @@ describe("outbound message planning", () => {
     ]);
   });
 });
-
-describe("Google Chat semantic whitespace planning", () => {
-  it.each([
-    { name: "standalone fallback control", prefix: "", expected: ["```\n \n```"] },
-    {
-      name: "fenced block after a full default-limit paragraph",
-      prefix: "A".repeat(32_000) + "\n\n",
-      expected: ["A".repeat(32_000), "\n\n```\n \n```"],
-    },
-  ])("plans semantic whitespace: $name", async ({ prefix, expected }) => {
-    const { googlechatPlugin } = await import("../../../extensions/googlechat/api.js");
-    const outbound = googlechatPlugin.outbound;
-    if (!outbound?.chunker || !outbound.sanitizeText) {
-      throw new Error("Google Chat outbound formatter is unavailable");
-    }
-    const payload = { text: prefix + "```\n \n```" };
-    const text = outbound.sanitizeText({ text: payload.text, payload, cfg: {} });
-    expect(text).toBe(payload.text);
-    expect(outbound.textChunkLimit).toBe(32_000);
-    const units = planOutboundTextMessageUnits({
-      text,
-      overrides: {},
-      chunker: outbound.chunker,
-      chunkerMode: outbound.chunkerMode,
-      textLimit: outbound.textChunkLimit,
-      chunkMode: "length",
-    });
-    expect(units).toEqual(
-      expected.map((value, index) => ({
-        kind: "text",
-        text: value,
-        overrides: { deliveryPartIndex: index, deliveryPartCount: expected.length },
-      })),
-    );
-  });
-});

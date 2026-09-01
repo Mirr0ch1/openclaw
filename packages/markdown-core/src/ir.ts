@@ -1516,7 +1516,8 @@ export function appendMarkdownIR(target: MarkdownIR, source: MarkdownIR): void {
   if (source.annotations?.length) {
     appendSpans((target.annotations ??= []), source.annotations, offset);
   }
-  for (const item of (source.listItems ?? []) as MarkdownListItemWithMetadata[]) {
+  const listItems: MarkdownListItemWithMetadata[] = source.listItems ?? [];
+  for (const item of listItems) {
     for (const marker of [item.listMarker, item.taskMarker]) {
       if (marker) {
         marker.start += offset;
@@ -1532,10 +1533,11 @@ export function appendMarkdownIR(target: MarkdownIR, source: MarkdownIR): void {
     }
     (target.listItems ??= []).push(item);
   }
-  const sourceBlocks = (source as MarkdownIRWithMetadata).blocks;
-  if (sourceBlocks?.length) {
-    const blocks = (target as MarkdownIRWithMetadata).blocks ?? [];
-    appendSpans(blocks, sourceBlocks, offset);
+  const sourceWithMetadata: MarkdownIRWithMetadata = source;
+  if (sourceWithMetadata.blocks?.length) {
+    const targetWithMetadata: MarkdownIRWithMetadata = target;
+    const blocks = targetWithMetadata.blocks ?? [];
+    appendSpans(blocks, sourceWithMetadata.blocks, offset);
     attachBlockMetadata(target, blocks);
   }
 }

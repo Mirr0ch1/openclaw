@@ -284,8 +284,8 @@ function coalesceWhitespaceOnlyMarkdownIRChunks<TRendered>(
   const coalesced: Array<RenderedCandidate<TRendered> & { ranges: SourceRange[] }> = [];
 
   pending.forEach((chunk, index) => {
-    const range = { start: chunk.start, end: chunk.end };
-    const current = { ...chunk, ranges: [range] };
+    const currentRange = { start: chunk.start, end: chunk.end };
+    const current = { ...chunk, ranges: [currentRange] };
     if (chunk.rawSource.text.trim().length > 0) {
       coalesced.push(current);
       return;
@@ -322,7 +322,7 @@ function coalesceWhitespaceOnlyMarkdownIRChunks<TRendered>(
     };
 
     if (prev) {
-      const mergedPrev = renderIfFits([...prev.ranges, range]);
+      const mergedPrev = renderIfFits([...prev.ranges, currentRange]);
       if (mergedPrev) {
         coalesced[coalesced.length - 1] = mergedPrev;
         return;
