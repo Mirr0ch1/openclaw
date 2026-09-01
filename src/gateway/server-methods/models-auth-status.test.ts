@@ -217,6 +217,7 @@ function createLogoutOptions(
 const requireRecord = createRequireRecord("record", "expected-non-array-record");
 let preparedAuthStore: AuthProfileStore = { version: 1, profiles: {} };
 let preparedMetadataSnapshot: unknown;
+let preparedOAuthRefreshProviderIds: string[] = [];
 
 function setPreparedAuthStore(store: AuthProfileStore): void {
   preparedAuthStore = store;
@@ -242,6 +243,7 @@ function createPreparedOwnerSnapshot(agentId: string) {
     authModes: {},
     authStore: preparedAuthStore,
     authMaterializations: [],
+    oauthRefreshProviderIds: preparedOAuthRefreshProviderIds,
     metadataSnapshot: preparedMetadataSnapshot as never,
   };
 }
@@ -292,6 +294,7 @@ function resetAuthStatusMocks(): void {
   );
   mocks.resolveDefaultAgentId.mockReturnValue("main");
   setPreparedAuthStore({ version: 1, profiles: {} });
+  preparedOAuthRefreshProviderIds = [];
   setPreparedMetadataSnapshot({
     index: { plugins: [] },
     manifestRegistry: { plugins: [] },
@@ -755,6 +758,56 @@ describe("models.authStatus", () => {
     expect(provider?.profiles[0]?.logoutSupported).toBeUndefined();
   });
 
+  it("reports stored OAuth as signed in across access-token expiry", async () => {
+    const profileId = "xai:falcon";
+    const profile = {
+      profileId,
+      provider: "xai",
+      type: "oauth",
+      status: "expiring",
+      expiresAt: 3,
+      remainingMs: 1,
+      source: "store",
+      label: profileId,
+    } satisfies AuthHealthSummary["profiles"][number];
+    setPreparedAuthStore({
+      version: 1,
+      profiles: {
+        [profileId]: {
+          type: "oauth",
+          provider: "xai",
+          access: "short-lived-access",
+          refresh: "durable-refresh",
+          expires: 3,
+        },
+      },
+    });
+    preparedOAuthRefreshProviderIds = ["xai"];
+    mocks.buildAuthHealthSummary.mockReturnValue({
+      now: 2,
+      warnAfterMs: 2,
+      profiles: [profile],
+      providers: [
+        {
+          provider: "xai",
+          status: "expiring",
+          expiresAt: 3,
+          remainingMs: 1,
+          profiles: [profile],
+        },
+      ],
+    });
+
+    const provider = await firstAuthStatusProvider();
+
+    expect(provider).toMatchObject({
+      provider: "xai",
+      status: "ok",
+      profiles: [{ profileId, status: "expiring" }],
+    });
+    expect(provider?.expiry).toBeUndefined();
+  });
+
   it("reports external CLI-managed OAuth as signed in across access-token expiry", async () => {
     const profileId = "anthropic:claude-cli";
     const profile = {
@@ -1032,7 +1085,7 @@ describe("models.authStatus", () => {
     );
   });
 
-  it("preserves expiry when an effective OAuth sibling is not CLI-owned", async () => {
+  it("preserves expiry when an effective OAuth sibling is not refresh-owned", async () => {
     const cliProfileId = "anthropic:claude-cli";
     const manualProfileId = "anthropic:manual";
     const profiles = [cliProfileId, manualProfileId].map(
