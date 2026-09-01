@@ -136,11 +136,11 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
         const filename = path.join(native, name);
         try {
           fs.appendFileSync(filename, "altered copy");
-          expect(() => verifyVitestWorkerArtifacts(directory)).toThrow(
+          await expect(verifyVitestWorkerArtifacts(directory)).rejects.toThrow(
             "Compiled subprocess artifact changed",
           );
           fs.rmSync(filename);
-          expect(() => verifyVitestWorkerArtifacts(directory)).toThrow("ENOENT");
+          await expect(verifyVitestWorkerArtifacts(directory)).rejects.toThrow("ENOENT");
         } finally {
           fs.writeFileSync(filename, bytes);
         }
@@ -908,7 +908,7 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
         const directory = workerArtifacts.fixtureDirectory();
         const { config } = workerProbe(directory, true);
         const owner = createVitestWorkerRun();
-        // Node26 parent-side child.disconnect() omits ChildProcess.close. Close the
+        // Node parent-side child.disconnect() can omit ChildProcess.close. Close the
         // fixture endpoint so the owner receives EOF and retains its real join contract.
         const disconnect = writeFixture(
           directory,
@@ -1270,14 +1270,14 @@ describe.concurrent("fresh compiled subprocess invocation", () => {
         });
         const changedSource = fs.readFileSync(dependency, "utf8");
         fs.appendFileSync(dependency, "\n// changed after preparation\n");
-        expect(() => verifyVitestWorkerArtifacts(directories[1]!)).toThrow(
+        await expect(verifyVitestWorkerArtifacts(directories[1]!)).rejects.toThrow(
           "Source changed during compiled subprocess invocation",
         );
         fs.writeFileSync(dependency, changedSource);
         const tuiDeclaration = path.join(fixture, "src/tui/tui-pty-runtime-test-support.ts");
         const originalDeclaration = fs.readFileSync(tuiDeclaration, "utf8");
         fs.appendFileSync(tuiDeclaration, "\n// declaration changed after preparation\n");
-        expect(() => verifyVitestWorkerArtifacts(directories[1]!)).toThrow(
+        await expect(verifyVitestWorkerArtifacts(directories[1]!)).rejects.toThrow(
           "Source changed during compiled subprocess invocation",
         );
         fs.writeFileSync(tuiDeclaration, originalDeclaration);
