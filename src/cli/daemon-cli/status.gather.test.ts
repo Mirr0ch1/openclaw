@@ -828,8 +828,19 @@ describe("gatherDaemonStatus", () => {
         url: "ws://127.0.0.1:18900",
         error: "connect ECONNREFUSED 127.0.0.1:18900",
       });
+      loadInstalledPluginIndexInstallRecords.mockResolvedValueOnce({
+        whatsapp: {
+          source: "npm",
+          resolvedName: "@openclaw/whatsapp",
+          resolvedVersion: "2026.5.4",
+        },
+      } as never);
 
-      const status = await gatherStatus({ requireRpc: true, deep: true });
+      const status = await gatherStatus({
+        requireRpc: true,
+        deep: true,
+        pluginVersionTarget: "restart",
+      });
 
       expect(status.gateway?.probeUrl).toBe("ws://127.0.0.1:18900");
       expect((callArg(callGatewayStatusProbe) as { url?: string }).url).toBe(
@@ -848,6 +859,7 @@ describe("gatherDaemonStatus", () => {
       expect(authInput.cfg).toBe(cliLoadedConfig);
       expect(authInput.env?.OPENCLAW_GATEWAY_PORT).toBe("18900");
       expect(status.service.targetRole).toBe("diagnostic-only");
+      expect(status.pluginVersionRestartReadiness).toBeUndefined();
       expect(inspectGatewayRestart).not.toHaveBeenCalled();
     },
   );

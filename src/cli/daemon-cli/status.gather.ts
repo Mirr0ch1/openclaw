@@ -790,8 +790,8 @@ export async function gatherDaemonStatus(
     try {
       if (opts.pluginVersionTarget === "restart") {
         const runningGatewayVersion = gatewayVersion ?? undefined;
-        if (!targetServiceCommand && !loaded) {
-          // No managed restart target means this diagnostic does not apply.
+        if (!useNativeServiceTargetContext || (!targetServiceCommand && !loaded)) {
+          // Only the authoritative loaded native service can define restart readiness.
         } else {
           const installRecords = await loadInstallRecords();
           if (hasOfficialPluginVersionCandidates({ installRecords, config: daemonCfg })) {
