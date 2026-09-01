@@ -261,7 +261,7 @@ State is stored in the per-agent SQLite auth state:
 }
 ```
 
-Overloaded and rate-limit errors are handled more aggressively than billing cooldowns: by default, OpenClaw allows one same-provider auth-profile retry, then switches to the next configured model fallback without waiting.
+Overloaded and rate-limit errors allow one same-provider auth-profile rotation by default before advancing to the next configured model fallback. The active runtime may first use its own safe retry budget; embedded runs can retry transient failures while no assistant output or tool activity has started.
 
 ## Model fallback
 
@@ -313,6 +313,8 @@ OpenClaw builds the candidate list from the currently requested `provider/model`
 
   </Tab>
 </Tabs>
+
+A final provider refusal ends the current turn. OpenClaw surfaces it without automatic recovery turns, compaction retries, or switching to an unrelated model. A queued or later user message still starts its own turn.
 
 ### Cooldown skip vs probe behavior
 
