@@ -525,7 +525,6 @@ export const en: TranslationMap & {
       blockedTitle: "Update blocked",
       blockedSummary: "The selected revision could not be applied to this checkout.",
       blockedWaiting: "Blocked · waiting for active work · {target}",
-      waitingForIdle: "Waiting for active work",
     },
     dialog: {
       restarting: "The Gateway is restarting. This page disconnects and reconnects on its own.",
