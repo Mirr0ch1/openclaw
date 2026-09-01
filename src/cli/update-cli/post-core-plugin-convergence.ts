@@ -17,6 +17,7 @@ import {
   relinkOpenClawPeerDependenciesInManagedNpmRoot,
 } from "../../plugins/plugin-peer-link.js";
 import { pruneStaleLocalBundledPluginInstallRecords } from "../../plugins/stale-local-bundled-plugin-install-records.js";
+import type { PluginUpdateOutcome } from "../../plugins/update.js";
 import { resolveUserPath } from "../../utils.js";
 import { VERSION } from "../../version.js";
 import {
@@ -36,6 +37,7 @@ type PostCoreConvergenceResult = {
   changes: string[];
   notices?: PostCoreConvergenceWarning[];
   warnings: PostCoreConvergenceWarning[];
+  outcomes?: PluginUpdateOutcome[];
   errored: boolean;
   smokeFailures: PluginPayloadSmokeFailure[];
   /**
@@ -143,9 +145,9 @@ function formatPeerLinkPackageReadWarning(failure: { error: unknown }): PostCore
 /**
  * Mandatory post-core convergence pass. Runs AFTER the core package files
  * are swapped and the in-update doctor pass has already returned, but BEFORE
- * the gateway is restarted. Missing-plugin repair failures stay nonblocking:
- * an external package fetch may be transient, and failing the core update
- * would strand the user. Explicit `openclaw update` callers keep reporting
+ * the gateway is restarted. Transient missing-plugin fetch failures stay
+ * nonblocking; unresolved consent retains its typed update outcome.
+ * Explicit `openclaw update` callers keep reporting
  * payload smoke failures as errors. Gateway startup consumes the same typed
  * failures by quarantining each known plugin owner before any module import,
  * then boots with that plugin marked configured-unavailable.
@@ -276,6 +278,7 @@ export async function runPostCorePluginConvergence(params: {
     ],
     notices,
     warnings,
+    outcomes: repair.outcomes,
     errored: smoke.failures.length > 0,
     smokeFailures: smoke.failures,
     installRecords: records,
@@ -288,16 +291,15 @@ export async function runPostCorePluginConvergence(params: {
  * post-core update result carries.
  *
  * Returns:
- *  - `outcomes` to append to `pluginUpdateOutcomes`. Only convergence
- *    warnings that name a `pluginId` produce per-plugin error outcomes; the
- *    rest are surfaced via `warnings`.
+ *  - `outcomes` to append to `pluginUpdateOutcomes`: typed repair outcomes plus
+ *    per-plugin smoke errors. Other repair failures remain warnings.
  *  - `errored` boolean that callers translate into `status: "error"`.
  *    Repair warnings are nonblocking; smoke failures remain errors on the
  *    explicit update path even though Gateway startup can quarantine them.
  */
 export function convergenceWarningsToOutcomes(convergence: PostCoreConvergenceResult): {
   warnings: PostCoreConvergenceWarning[];
-  outcomes: Array<{ pluginId: string; status: "error"; message: string }>;
+  outcomes: PluginUpdateOutcome[];
   errored: boolean;
 } {
   const outcomes = convergence.warnings
@@ -305,7 +307,7 @@ export function convergenceWarningsToOutcomes(convergence: PostCoreConvergenceRe
     .map((w) => ({ pluginId: w.pluginId, status: "error" as const, message: w.message }));
   return {
     warnings: [...convergence.warnings, ...(convergence.notices ?? [])],
-    outcomes,
+    outcomes: [...(convergence.outcomes ?? []), ...outcomes],
     errored: convergence.errored,
   };
 }

@@ -10,7 +10,7 @@ import {
 } from "../../../plugins/config-state.js";
 import { writePersistedInstalledPluginIndexInstallRecords } from "../../../plugins/installed-plugin-index-records.js";
 import { withPluginLifecycleLease } from "../../../plugins/plugin-lifecycle-lease.js";
-import { updateNpmInstalledPlugins } from "../../../plugins/update.js";
+import { updateNpmInstalledPlugins, type PluginUpdateOutcome } from "../../../plugins/update.js";
 import { resolveUserPath } from "../../../utils.js";
 import { resolveCompatibilityHostVersion } from "../../../version.js";
 import {
@@ -48,6 +48,8 @@ type RepairMissingPluginInstallsResult = {
   /** User-facing notices from successful repairs that still need operator review. */
   notices?: string[];
   warnings: string[];
+  /** Unresolved consent errors, kept typed for update finalization. */
+  outcomes?: PluginUpdateOutcome[];
   /** Plugin ids successfully repaired from current configuration. */
   repairedPluginIds?: string[];
   /** Successful install-record or package repairs that invalidate retained metadata. */
@@ -170,6 +172,7 @@ async function repairMissingPluginInstallsWithLease(
   const changes: string[] = [];
   const notices: string[] = [];
   const warnings: string[] = [];
+  const outcomes: PluginUpdateOutcome[] = [];
   const deferredRepairDetails: string[] = [];
   const failedPluginIds = new Set<string>();
   const repairedPluginIds = new Set<string>();
@@ -198,6 +201,9 @@ async function repairMissingPluginInstallsWithLease(
       );
     } else {
       warnings.push(...messages);
+      if (code === PLUGIN_CAPABILITY_CONSENT_REQUIRED) {
+        outcomes.push({ pluginId, status: "error", code, message: messages.join(" ") });
+      }
     }
     failedPluginIds.add(pluginId);
   };
@@ -425,6 +431,7 @@ async function repairMissingPluginInstallsWithLease(
   return {
     changes,
     warnings,
+    ...(outcomes.length > 0 ? { outcomes } : {}),
     ...(notices.length > 0 ? { notices } : {}),
     ...(deferredRepairDetails.length > 0 ? { deferredRepairDetails } : {}),
     ...(repairedPluginIds.size > 0

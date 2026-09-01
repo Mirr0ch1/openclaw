@@ -1,5 +1,6 @@
 // Missing configured plugin install tests cover doctor diagnostics for absent plugin installs.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -279,16 +280,6 @@ vi.mock("../../../plugins/manifest-contract-eligibility.js", async (importOrigin
   loadManifestMetadataSnapshot: mocks.loadPluginMetadataSnapshot,
 }));
 
-vi.mock("../../../plugins/doctor-contract-registry.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../plugins/doctor-contract-registry.js")>()),
-  // Plugin-owned compatibility is outside this install-repair suite. Avoid scanning
-  // the real plugin registry when the legacy-config fixture reaches that follow-up pass.
-  applyPluginDoctorCompatibilityMigrations: (cfg: OpenClawConfig) => ({
-    config: cfg,
-    changes: [],
-  }),
-}));
-
 vi.mock("../../../plugins/official-external-plugin-catalog.js", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("../../../plugins/official-external-plugin-catalog.js")
@@ -457,6 +448,7 @@ describe("repairMissingConfiguredPluginInstalls", () => {
       if (previousState === "legacy" || previousState === "accepted") {
         expect(result.warnings).toEqual([]);
         expect(result.notices).toEqual([expect.stringContaining("--accept-capabilities")]);
+        expect(result.outcomes).toBeUndefined();
       } else {
         expect(result.warnings).toEqual([expect.stringContaining("--accept-capabilities")]);
         expect(result.notices).toBeUndefined();
@@ -519,6 +511,14 @@ describe("repairMissingConfiguredPluginInstalls", () => {
         siblingSucceeded ? { ...records, sibling: updatedSibling } : records,
       );
       expect(result.warnings).toEqual(["Review replacement capabilities."]);
+      expect(result.outcomes).toEqual([
+        {
+          pluginId: "demo",
+          status: "error",
+          code: PLUGIN_CAPABILITY_CONSENT_REQUIRED,
+          message: "Review replacement capabilities.",
+        },
+      ]);
       expect(result.notices).toBeUndefined();
       if (siblingSucceeded) {
         expect(mocks.writePersistedInstalledPluginIndexInstallRecords).toHaveBeenCalledWith(
@@ -537,7 +537,7 @@ describe("repairMissingConfiguredPluginInstalls", () => {
       [false, true].map((accepted) => ({ source, accepted })),
     ),
   )(
-    "reviews doctor $source artifact capabilities before publication, accepted=$accepted",
+    "reviews doctor $source artifact capabilities through post-core convergence, accepted=$accepted",
     async ({ source, accepted }) => {
       const actual = await vi.importActual<typeof import("../../../plugins/capability-consent.js")>(
         "../../../plugins/capability-consent.js",
@@ -654,6 +654,30 @@ describe("repairMissingConfiguredPluginInstalls", () => {
         expect(result.warnings.join("\n")).toMatch(/capabilit/i);
         expect(mocks.writePersistedInstalledPluginIndexInstallRecords).not.toHaveBeenCalled();
       }
+
+      const { runPostCorePluginConvergence, convergenceWarningsToOutcomes } =
+        await import("../../../cli/update-cli/post-core-plugin-convergence.js");
+      const convergence = await runPostCorePluginConvergence({
+        cfg,
+        env: { OPENCLAW_STATE_DIR: path.join(root, "state") },
+        baselineInstallRecords: {},
+        ...(accepted ? { onCapabilityConsent: consent } : {}),
+      });
+      expect(convergence.smokeFailures).toEqual([]);
+      if (!accepted) {
+        expect(convergence.installRecords).toEqual({});
+      }
+      expect(convergenceWarningsToOutcomes(convergence).outcomes).toEqual(
+        accepted
+          ? []
+          : [
+              expect.objectContaining({
+                pluginId: "matrix",
+                status: "error",
+                code: PLUGIN_CAPABILITY_CONSENT_REQUIRED,
+              }),
+            ],
+      );
     },
   );
 
@@ -665,6 +689,8 @@ describe("repairMissingConfiguredPluginInstalls", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Explicit empty env fixtures fall back to the OS home, outside Vitest's env copy.
+    vi.spyOn(os, "homedir").mockReturnValue(tempDirs.make("openclaw-doctor-home-"));
     prepareManagedPluginArtifactConsentHandler.mockResolvedValue({
       onBeforePluginArtifactCommit: async () => {},
       applyAcceptedSurface: (_pluginId, record) => record,
@@ -789,6 +815,8 @@ describe("repairMissingConfiguredPluginInstalls", () => {
       },
     });
   });
+
+  afterEach(() => vi.restoreAllMocks());
 
   it("maps a missing configured plugin install to a structured finding and dry-run effect", async () => {
     mocks.listChannelPluginCatalogEntries.mockReturnValue([

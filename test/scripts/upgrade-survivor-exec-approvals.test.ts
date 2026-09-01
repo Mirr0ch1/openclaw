@@ -133,7 +133,9 @@ describe("survivor exec approval policy observation", () => {
     "rejects missing canonical %s without importing legacy policy",
     (missing) => {
       const { writeCanonical, observe } = fixture();
-      if (missing === "row") writeCanonical(null);
+      if (missing === "row") {
+        writeCanonical(null);
+      }
       const result = observe();
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("missing after update");

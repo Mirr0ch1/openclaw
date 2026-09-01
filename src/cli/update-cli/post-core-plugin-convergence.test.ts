@@ -456,6 +456,7 @@ describe("runPostCorePluginConvergence", () => {
       env: {},
     });
     expect(result.errored).toBe(false);
+    expect(convergenceWarningsToOutcomes(result).outcomes).toEqual([]);
     expect(result.warnings).toStrictEqual([
       {
         reason:
