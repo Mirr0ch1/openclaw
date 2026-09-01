@@ -745,7 +745,7 @@ describe("executeAgentTurn: provider failures", () => {
     expect(vi.mocked(agentEvents.emitAgentEvent)).toHaveBeenCalledWith(
       expect.objectContaining({
         stream: "lifecycle",
-        data: expect.objectContaining({ phase: "error", fallbackExhaustedFailure: true }),
+        data: expect.objectContaining({ phase: "error", executionSettled: true }),
       }),
     );
   });

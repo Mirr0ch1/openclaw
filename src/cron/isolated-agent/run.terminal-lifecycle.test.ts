@@ -104,7 +104,7 @@ describe("runCronIsolatedAgentTurn terminal lifecycle", () => {
     resolveAllowedModelRefMock.mockReturnValue({
       ref: { provider: "openai", model: "gpt-5.6-luna" },
     });
-    const exhausted = outcome.includes("exhausted") || outcome === "retry-prepare-failure";
+    const exhausted = outcome.includes("exhausted");
     const cliFallback = outcome.startsWith("cli-");
     const cancelled = outcome === "cancelled" || outcome === "cli-cancelled";
     resolveAgentModelFallbacksOverrideMock.mockReturnValue([
