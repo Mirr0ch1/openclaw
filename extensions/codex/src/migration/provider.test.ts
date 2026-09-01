@@ -1124,6 +1124,10 @@ describe("buildCodexMigrationProvider", () => {
     });
 
     const plan = await provider.plan(ctx);
+    expect(readCodexCliActiveApiKey).toHaveBeenCalledWith({
+      codexHome: fixture.codexHome,
+      allowKeychainPrompt: false,
+    });
     expect(findItem(plan.items, "auth:openai:api-key")).toMatchObject({
       details: { credentialKind: "api_key" },
     });

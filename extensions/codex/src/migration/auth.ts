@@ -151,7 +151,10 @@ async function buildCodexOAuthCredential(
 async function buildCodexApiKeyCredential(
   source: CodexAuthSource,
 ): Promise<CodexAuthCredential | null> {
-  const credential = readCodexCliActiveApiKey({ codexHome: source.codexHome });
+  const credential = readCodexCliActiveApiKey({
+    codexHome: source.codexHome,
+    allowKeychainPrompt: false,
+  });
   if (!credential) {
     return null;
   }
