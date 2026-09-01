@@ -1087,6 +1087,9 @@ describe("runCodexAppServerSideQuestion", () => {
         text: "Side answer.",
       });
 
+      expect(createOpenClawCodingToolsMock).toHaveBeenCalledWith(
+        expect.objectContaining({ requesterThinkingLevel: thinking }),
+      );
       const turnStartCall = client.request.mock.calls.find(([method]) => method === "turn/start");
       expect(turnStartCall?.[1]).toMatchObject({
         threadId: "side-thread",
@@ -2946,20 +2949,18 @@ describe("runCodexAppServerSideQuestion", () => {
         opts: { runId: "run-side-diagnostics" },
       }),
     );
-    await handleClientRequestWhenReady(
-      client,
-      {
-        id: 42,
-        method: "item/tool/call",
-        params: {
-          ...codexTestTurnIds("side-thread"),
-          callId: "tool-1",
-          tool: "wiki_status",
-          arguments: { topic: "AGENTS.md" },
-        },
+    const response = await handleClientRequestWhenReady(client, {
+      id: 42,
+      method: "item/tool/call",
+      params: {
+        ...codexTestTurnIds("side-thread"),
+        callId: "tool-1",
+        tool: "wiki_status",
+        arguments: { topic: "AGENTS.md" },
       },
-      () => expect(toolExecuteMock).toHaveBeenCalledTimes(1),
-    );
+    });
+    expect(response).toMatchObject({ success: true });
+    expect(toolExecuteMock).toHaveBeenCalledTimes(1);
     client.emit(agentDelta("side-thread", "turn-1", "Tool answer."));
     client.emit(turnCompleted("side-thread", "turn-1", "Tool answer."));
     await run;

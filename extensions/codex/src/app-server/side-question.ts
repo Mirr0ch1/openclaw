@@ -1146,6 +1146,7 @@ async function createCodexSideToolBridge(input: {
     );
     const allTools = createOpenClawCodingTools({
       agentId: input.sessionAgentId,
+      requesterThinkingLevel: input.params.resolvedThinkLevel ?? "off",
       sessionKey: sandboxSessionKey,
       runSessionKey:
         input.params.sessionKey && input.params.sessionKey !== sandboxSessionKey
