@@ -1,5 +1,6 @@
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
+import { normalizeBoundedOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { sanitizeForLog } from "../../../packages/terminal-core/src/ansi.js";
 import { formatCliCommand } from "../../cli/command-format.js";
 /**
@@ -22,7 +23,47 @@ type OAuthRefreshFailure = {
   provider: string | null;
   profileId?: string;
   reason: OAuthRefreshFailureReason | null;
+  summary?: string;
 };
+
+export type OAuthRefreshFailurePresentation = {
+  reason?: OAuthRefreshFailureReason;
+  summary?: string;
+};
+
+const OAUTH_REFRESH_FAILURE_SUMMARY_MAX_CHARS = 500;
+const OAUTH_REFRESH_FAILURE_REASONS = [
+  "refresh_token_reused",
+  "invalid_grant",
+  "sign_in_again",
+  "invalid_refresh_token",
+  "token_invalidated",
+  "revoked",
+] as const satisfies readonly OAuthRefreshFailureReason[];
+
+function isOAuthRefreshFailureReason(value: unknown): value is OAuthRefreshFailureReason {
+  return (
+    typeof value === "string" &&
+    OAUTH_REFRESH_FAILURE_REASONS.some((candidate) => candidate === value)
+  );
+}
+
+export function readProviderOAuthRefreshFailure(
+  error: unknown,
+): OAuthRefreshFailurePresentation | null {
+  const presentation = asOptionalRecord(asOptionalRecord(error)?.oauthRefreshFailure);
+  if (!presentation) {
+    return null;
+  }
+  const summary = normalizeBoundedOptionalString(
+    presentation.summary,
+    OAUTH_REFRESH_FAILURE_SUMMARY_MAX_CHARS,
+  );
+  const reason = isOAuthRefreshFailureReason(presentation.reason) ? presentation.reason : undefined;
+  return summary || reason
+    ? { ...(reason ? { reason } : {}), ...(summary ? { summary } : {}) }
+    : null;
+}
 
 type StructuredClaudeCliAuthFailure = {
   provider?: unknown;
@@ -36,13 +77,29 @@ export class OAuthRefreshFailureError extends Error {
   readonly provider: string;
   readonly profileId?: string;
   readonly reason: OAuthRefreshFailureReason | null;
+  readonly summary?: string;
 
-  constructor(params: { provider: string; profileId?: string; message: string; cause?: unknown }) {
+  constructor(params: {
+    provider: string;
+    profileId?: string;
+    message: string;
+    cause?: unknown;
+    reason?: OAuthRefreshFailureReason | null;
+    summary?: string;
+  }) {
     super(params.message, { cause: params.cause });
+    const inherited = params.cause instanceof OAuthRefreshFailureError ? params.cause : undefined;
     this.name = "OAuthRefreshFailureError";
     this.provider = params.provider;
     this.profileId = params.profileId;
-    this.reason = classifyOAuthRefreshFailureReason(params.message);
+    this.reason =
+      params.reason !== undefined
+        ? params.reason
+        : (inherited?.reason ?? classifyOAuthRefreshFailureReason(params.message));
+    this.summary = normalizeBoundedOptionalString(
+      params.summary ?? inherited?.summary,
+      OAUTH_REFRESH_FAILURE_SUMMARY_MAX_CHARS,
+    );
   }
 }
 
@@ -206,6 +263,7 @@ export function classifyOAuthRefreshFailureError(err: unknown): OAuthRefreshFail
         provider: sanitizeOAuthRefreshFailureProvider(candidate.provider),
         ...(profileId ? { profileId } : {}),
         reason: candidate.reason,
+        ...(candidate.summary ? { summary: candidate.summary } : {}),
       };
     }
     const record = asOptionalRecord(candidate);

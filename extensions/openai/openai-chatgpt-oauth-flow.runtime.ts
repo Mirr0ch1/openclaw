@@ -170,7 +170,17 @@ function resolveOpenAICredentials(
   result: Awaited<ReturnType<typeof refreshOpenAIAccessToken>>,
 ): OAuthCredentials {
   if (result.type !== "success") {
-    throw new Error(result.message);
+    const oauthRefreshFailure =
+      result.summary || result.reason
+        ? {
+            ...(result.reason ? { reason: result.reason } : {}),
+            ...(result.summary ? { summary: result.summary } : {}),
+          }
+        : undefined;
+    throw Object.assign(
+      new Error(result.message),
+      oauthRefreshFailure ? { oauthRefreshFailure } : {},
+    );
   }
   const accountId = resolveOpenAICodexAuthIdentity({ access: result.access }).accountId;
   if (!accountId) {

@@ -29,7 +29,7 @@ import {
   resolveOpenAICallbackHost,
   resolveOpenAIRedirectUri,
 } from "./openai-chatgpt-oauth-authorization.runtime.js";
-import { loginOpenAICodex } from "./openai-chatgpt-oauth-flow.runtime.js";
+import { loginOpenAICodex, refreshOpenAICodexToken } from "./openai-chatgpt-oauth-flow.runtime.js";
 import {
   exchangeOpenAIAuthorizationCode,
   refreshOpenAIAccessToken,
@@ -123,6 +123,64 @@ afterEach(() => {
 });
 
 describe("OpenAI Codex OAuth flow", () => {
+  it("uses the provider message for failed token refreshes without exposing the response body", async () => {
+    const providerMessage =
+      "Your refresh token has already been used to generate a new access token. Please try signing in again.";
+    const responseBody = {
+      error: {
+        message: providerMessage,
+        type: "invalid_request_error",
+        code: "refresh_token_reused",
+        refresh_token: "must-not-leak",
+      },
+    };
+    mockTokenResponse(responseBody, 401);
+
+    await expect(refreshOpenAIAccessToken("old-refresh-token")).resolves.toEqual({
+      type: "failed",
+      status: 401,
+      message: `${providerMessage} [refresh_token_reused]`,
+      reason: "refresh_token_reused",
+      summary: providerMessage,
+    });
+
+    mockTokenResponse(responseBody, 401);
+    const error = await refreshOpenAICodexToken("old-refresh-token").catch(
+      (caught: unknown) => caught,
+    );
+    expect(error).toMatchObject({
+      message: `${providerMessage} [refresh_token_reused]`,
+      oauthRefreshFailure: {
+        reason: "refresh_token_reused",
+        summary: providerMessage,
+      },
+    });
+    expect(JSON.stringify(error)).not.toContain("must-not-leak");
+
+    mockTokenResponseText("refresh_token=must-not-leak", 401);
+    await expect(refreshOpenAIAccessToken("old-refresh-token")).resolves.toEqual({
+      type: "failed",
+      status: 401,
+      message: "OpenAI Codex token refresh failed (HTTP 401).",
+    });
+    mockTokenResponseText("refresh_token=must-not-leak", 401);
+    await expect(refreshOpenAICodexToken("old-refresh-token")).rejects.not.toHaveProperty(
+      "oauthRefreshFailure",
+    );
+
+    mockTokenResponse({ error: { code: "refresh_token_reused" } }, 401);
+    await expect(refreshOpenAIAccessToken("old-refresh-token")).resolves.toEqual({
+      type: "failed",
+      status: 401,
+      message: "OpenAI Codex token refresh failed (HTTP 401; reason=refresh_token_reused).",
+      reason: "refresh_token_reused",
+    });
+    mockTokenResponse({ error: { code: "refresh_token_reused" } }, 401);
+    await expect(refreshOpenAICodexToken("old-refresh-token")).rejects.toMatchObject({
+      oauthRefreshFailure: { reason: "refresh_token_reused" },
+    });
+  });
+
   it("cancels provider login before opening the OAuth flow", async () => {
     const controller = new AbortController();
     controller.abort();
