@@ -54,7 +54,7 @@ import type { GatewayRequestHandlerOptions } from "./types.js";
 type ChatSendInternalOptions = {
   goalResume?: SessionGoalOperation & { action: "resume" };
   trustedSystemInput?: boolean;
-  display?: false;
+  transcript?: Parameters<typeof createGatewayChatUserTurnController>[0]["transcript"];
   toolsAllow?: string[];
   skillWorkshopProposalRevision?: SkillWorkshopProposalRevisionConstraint;
 };
@@ -173,7 +173,7 @@ async function handleChatSendWithOptions(
       client,
       request: normalizedRequest.value,
       session: preparedSession.value,
-      display: options?.display,
+      transcript: options?.transcript,
       startedAt: admissionStartedAt,
       warn: (message) => context.logGateway.warn(message),
       assertGoalCurrent: () => {
@@ -525,7 +525,7 @@ export async function handleChatSendWithSkillWorkshopProposalRevision(
 export async function handleTrustedInternalChatSend(
   options: GatewayRequestHandlerOptions,
   onAdmissionOwned?: () => Promise<boolean>,
-  inputOptions?: Pick<ChatSendInternalOptions, "display" | "toolsAllow">,
+  inputOptions?: Pick<ChatSendInternalOptions, "transcript" | "toolsAllow">,
 ): Promise<void> {
   await handleChatSendWithOptions(options, onAdmissionOwned, undefined, {
     ...inputOptions,
