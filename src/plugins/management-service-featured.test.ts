@@ -32,7 +32,7 @@ function metadataSnapshot(params: {
   installRecord?: Record<string, unknown>;
   featured?: boolean;
   description?: string;
-  icon?: string;
+  iconPath?: string;
 }) {
   const id = params.id ?? "workboard";
   const packageName =
@@ -45,7 +45,7 @@ function metadataSnapshot(params: {
       name: params.name ?? "Workboard",
       description: params.description ?? "Coordinate agent work in a shared board.",
       catalog: { featured: params.featured ?? true, order: 10 },
-      ...(params.icon ? { icon: params.icon } : {}),
+      ...(params.iconPath ? { iconPath: params.iconPath } : {}),
       channels: [],
       providers: [],
       cliBackends: [],
@@ -183,7 +183,6 @@ describe("plugin management Featured authority", () => {
       config: {},
       env: {},
       pluginId: "@expediagroup/expedia-openclaw",
-      officialCatalog,
     });
 
     expect(catalog.plugins[0]).toMatchObject({
@@ -192,9 +191,9 @@ describe("plugin management Featured authority", () => {
       description: "Search flights, stays, and travel options.",
       featured: true,
       order: 10,
-      hasIcon: true,
     });
-    expect(resolved).toEqual({ kind: "url", url: icon });
+    expect(catalog.plugins[0]).not.toHaveProperty("hasIcon");
+    expect(resolved).toBeUndefined();
   });
 
   beforeEach(() => {
@@ -442,7 +441,6 @@ describe("plugin management Featured authority", () => {
         packageName: "@openclaw/firecrawl-plugin",
         featured: false,
         description: "Optional OpenClaw capability.",
-        icon: "https://cdn.example.test/firecrawl-bundled.png",
       }),
     );
     mocks.officialCatalog.mockResolvedValue(
@@ -475,10 +473,10 @@ describe("plugin management Featured authority", () => {
         featured: true,
         featuredAt: 1_784_280_000_000,
         order: 10,
-        hasIcon: true,
       }),
     ]);
-    expect(resolvedIcon).toEqual({ kind: "url", url: hostedIcon });
+    expect(catalog.plugins[0]).not.toHaveProperty("hasIcon");
+    expect(resolvedIcon).toBeUndefined();
   });
 
   it("keeps local curation for an unproven global package identity", async () => {
@@ -506,12 +504,10 @@ describe("plugin management Featured authority", () => {
   });
 
   it("does not identify a package-less private bundled plugin by hosted runtime id", async () => {
-    const localIcon = "https://cdn.example.test/private-workboard.png";
     mocks.metadata.mockReturnValue(
       metadataSnapshot({
         packageName: null,
         description: "Private local workboard.",
-        icon: localIcon,
       }),
     );
     mocks.officialCatalog.mockResolvedValue(
@@ -541,7 +537,7 @@ describe("plugin management Featured authority", () => {
         order: 10,
       }),
     ]);
-    expect(resolvedIcon).toEqual({ kind: "url", url: localIcon });
+    expect(resolvedIcon).toBeUndefined();
   });
 
   it("does not identify a package-less global plugin by hosted runtime id alone", async () => {

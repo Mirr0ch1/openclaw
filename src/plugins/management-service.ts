@@ -359,20 +359,6 @@ export function clearManagedPluginOfficialCatalogCache(): void {
   getManagedPluginCache().officialCatalog = undefined;
 }
 
-function resolveCatalogManifestIcon(manifest: unknown): string | undefined {
-  if (!manifest || typeof manifest !== "object") {
-    return undefined;
-  }
-  return normalizeOptionalString((manifest as { icon?: unknown }).icon);
-}
-
-function resolveCatalogEntryIcon(entry: OfficialExternalPluginCatalogEntry | undefined) {
-  return (
-    normalizeOptionalString(entry?.icon) ??
-    resolveCatalogManifestIcon(getOfficialExternalPluginCatalogManifest(entry ?? {}))
-  );
-}
-
 function mergeCatalogMetadata(
   hosted: OfficialExternalPluginCatalogEntry,
   bundled: OfficialExternalPluginCatalogEntry,
@@ -382,7 +368,6 @@ function mergeCatalogMetadata(
   const bundledManifest = getOfficialExternalPluginCatalogManifest(bundled);
   const bundledCatalog = bundledManifest?.catalog;
   const bundledPlugin = bundledManifest?.plugin;
-  const bundledIcon = resolveCatalogManifestIcon(bundledManifest);
   const bundledName = normalizeOptionalString(bundled.name);
   const bundledDescription = normalizeOptionalString(bundled.description);
   const bundledKind = normalizeOptionalString(bundled.kind);
@@ -413,7 +398,6 @@ function mergeCatalogMetadata(
       ...hostedManifest,
       ...(bundledPlugin ? { plugin: { ...hostedManifest?.plugin, ...bundledPlugin } } : {}),
       ...(mergedCatalog ? { catalog: mergedCatalog } : {}),
-      ...(!resolveCatalogManifestIcon(hostedManifest) && bundledIcon ? { icon: bundledIcon } : {}),
     },
   };
 }
@@ -646,16 +630,6 @@ function resolveInstalledOfficialCatalogEntry(params: {
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-function resolveOfficialCatalogIconUrl(
-  entries: readonly OfficialExternalPluginCatalogEntry[],
-  pluginId: string,
-): string | undefined {
-  const entry = entries.find(
-    (candidate) => resolveOfficialExternalPluginId(candidate) === pluginId,
-  );
-  return resolveCatalogEntryIcon(entry);
-}
-
 type PluginIndexRecord = PluginMetadataSnapshot["index"]["plugins"][number];
 
 function resolveInstalledPluginPresentation(params: {
@@ -767,42 +741,19 @@ function resolveInstalledHostedOfficialEntry(params: {
   };
 }
 
-export type ManagedPluginIconSource =
-  | { kind: "file"; path: string; rootPath: string }
-  | { kind: "url"; url: string };
+export type ManagedPluginIconSource = { kind: "file"; path: string; rootPath: string };
 
-function resolvePluginIconSourceFromCatalogFacts(params: {
+function resolvePluginIconSource(params: {
   metadata: PluginMetadataSnapshot;
-  officialEntries: readonly OfficialExternalPluginCatalogEntry[];
-  bundledOfficialEntries?: readonly OfficialExternalPluginCatalogEntry[];
   pluginId: string;
 }): ManagedPluginIconSource | undefined {
   const normalizedPluginId = params.metadata.normalizePluginId(params.pluginId);
-  const record = params.metadata.index.plugins.find(
-    (candidate) => params.metadata.normalizePluginId(candidate.pluginId) === normalizedPluginId,
-  );
   const manifest = params.metadata.byPluginId.get(normalizedPluginId);
   const localIconPath = normalizeOptionalString(manifest?.iconPath);
   if (localIconPath && manifest) {
     return { kind: "file", path: localIconPath, rootPath: manifest.rootDir };
   }
-  const localIconUrl = normalizeOptionalString(manifest?.icon);
-  if (!record) {
-    const url = resolveOfficialCatalogIconUrl(params.officialEntries, normalizedPluginId);
-    return url ? { kind: "url", url } : undefined;
-  }
-  const ownership = resolveInstalledPluginPackageOwnership(params.metadata.index, record.pluginId);
-  const installOwner = ownership.ok ? ownership.value.installOwner : undefined;
-  const { entry: officialEntry } = resolveInstalledHostedOfficialEntry({
-    record,
-    ...(installOwner ? { installOwner } : {}),
-    installRecord: installOwner ? params.metadata.index.installRecords[installOwner] : undefined,
-    officialEntries: params.officialEntries,
-    bundledOfficialEntries:
-      params.bundledOfficialEntries ?? listOfficialExternalPluginCatalogEntries(),
-  });
-  const url = resolveCatalogEntryIcon(officialEntry) ?? localIconUrl;
-  return url ? { kind: "url", url } : undefined;
+  return undefined;
 }
 
 function resolveManagedPluginMetadataParams(config: OpenClawConfig, env: NodeJS.ProcessEnv) {
@@ -849,21 +800,17 @@ export function refreshManagedPluginMetadata(params: {
   return snapshot;
 }
 
-/** Resolve the current package/manifest/catalog icon without accepting caller-provided input. */
+/** Resolve the current package-local icon without accepting caller-provided input. */
 export const resolveManagedPluginIconSource = withManagedPluginCache(
   async (params: {
     config: OpenClawConfig;
     pluginId: string;
     env?: NodeJS.ProcessEnv;
-    officialCatalog?: OfficialCatalogResult;
   }): Promise<ManagedPluginIconSource | undefined> => {
     const env = params.env ?? process.env;
     const metadata = resolveManagedPluginMetadata(params.config, env);
-    const officialCatalog = params.officialCatalog ?? (await loadOfficialCatalog());
-    return resolvePluginIconSourceFromCatalogFacts({
+    return resolvePluginIconSource({
       metadata,
-      officialEntries: officialCatalog.entries,
-      bundledOfficialEntries: listOfficialExternalPluginCatalogEntries(),
       pluginId: params.pluginId,
     });
   },
@@ -1014,10 +961,8 @@ export const listManagedPlugins = withManagedPluginCache(
         plugin.order = catalog.order;
       }
       if (
-        resolvePluginIconSourceFromCatalogFacts({
+        resolvePluginIconSource({
           metadata,
-          officialEntries: officialCatalog.entries,
-          bundledOfficialEntries,
           pluginId: record.pluginId,
         })
       ) {
@@ -1080,7 +1025,6 @@ export const listManagedPlugins = withManagedPluginCache(
         ...(catalog.featured !== undefined ? { featured: catalog.featured } : {}),
         ...(featuredAt !== undefined ? { featuredAt } : {}),
         ...(catalog.order !== undefined ? { order: catalog.order } : {}),
-        ...(resolveCatalogEntryIcon(entry) ? { hasIcon: true } : {}),
         ...(install ? { install } : {}),
       });
     }
