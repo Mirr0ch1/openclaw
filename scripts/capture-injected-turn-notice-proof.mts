@@ -11,24 +11,17 @@ import {
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
 } from "../ui/src/test-helpers/control-ui-e2e.ts";
+import { readFlagValue } from "./lib/arg-utils.mts";
 
-function readOption(name: string): string | undefined {
-  const prefix = `--${name}=`;
-  const inline = process.argv.slice(2).find((arg) => arg.startsWith(prefix));
-  if (inline) {
-    return inline.slice(prefix.length);
-  }
-  const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] : undefined;
-}
+const argv = process.argv.slice(2);
 
-const mode = readOption("mode") ?? "after";
+const mode = readFlagValue(argv, "--mode") ?? "after";
 if (mode !== "after" && mode !== "before") {
   throw new Error(`Expected --mode after|before, received ${mode}`);
 }
 const outputDir = createControlUiE2eArtifactDir(
   "injected-turn-notice-proof",
-  readOption("output-dir") ?? ".artifacts/control-ui-e2e/injected-turn-notice-proof",
+  readFlagValue(argv, "--output-dir") ?? ".artifacts/control-ui-e2e/injected-turn-notice-proof",
 );
 
 const baseTime = Date.parse("2026-08-26T20:37:00.000Z");

@@ -10,22 +10,15 @@ import {
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
 } from "../ui/src/test-helpers/control-ui-e2e.ts";
+import { readFlagValue } from "./lib/arg-utils.mts";
 
-function readOption(name: string): string | undefined {
-  const prefix = `--${name}=`;
-  const inline = process.argv.slice(2).find((arg) => arg.startsWith(prefix));
-  if (inline) {
-    return inline.slice(prefix.length);
-  }
-  const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] : undefined;
-}
+const argv = process.argv.slice(2);
 
 const outputDir = createControlUiE2eArtifactDir(
   "composer-mic-hover-proof",
-  readOption("output-dir") ?? ".artifacts/control-ui-e2e/composer-mic-hover-proof",
+  readFlagValue(argv, "--output-dir") ?? ".artifacts/control-ui-e2e/composer-mic-hover-proof",
 );
-const label = readOption("label") ?? "after";
+const label = readFlagValue(argv, "--label") ?? "after";
 const executablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 if (!canRunPlaywrightChromium(executablePath)) {
   throw new Error(`Playwright Chromium is unavailable at ${executablePath}`);

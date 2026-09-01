@@ -8,21 +8,13 @@ import {
   resolvePlaywrightChromiumExecutablePath,
   startControlUiE2eServer,
 } from "../ui/src/test-helpers/control-ui-e2e.ts";
+import { readFlagValue } from "./lib/arg-utils.mts";
 
+const argv = process.argv.slice(2);
 type CaptureMode = "after" | "before";
 
-function readOption(name: string): string | undefined {
-  const prefix = `--${name}=`;
-  const inline = process.argv.slice(2).find((arg) => arg.startsWith(prefix));
-  if (inline) {
-    return inline.slice(prefix.length);
-  }
-  const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] : undefined;
-}
-
 function readMode(): CaptureMode {
-  const value = readOption("mode") ?? "after";
+  const value = readFlagValue(argv, "--mode") ?? "after";
   if (value !== "after" && value !== "before") {
     throw new Error(`Expected --mode after|before, received ${value}`);
   }
@@ -114,7 +106,7 @@ const ungroupedSessions = [
 const mode = readMode();
 const outputDir = createControlUiE2eArtifactDir(
   "session-toolbar-proof",
-  readOption("output-dir") ?? ".artifacts/control-ui-e2e/session-toolbar-proof",
+  readFlagValue(argv, "--output-dir") ?? ".artifacts/control-ui-e2e/session-toolbar-proof",
 );
 const executablePath = resolvePlaywrightChromiumExecutablePath(chromium.executablePath());
 if (!canRunPlaywrightChromium(executablePath)) {
