@@ -16,7 +16,10 @@ const REPLAY_UNSAFE_ASSISTANT_ERROR_CODES = new Set([
   PROVIDER_POST_DISPATCH_AMBIGUITY_ERROR_CODE,
 ]);
 
-/** Refusals and possibly delivered output are terminal even when error text looks transient. */
+/**
+ * Preserve structured terminal outcomes before text classification.
+ * Replay could duplicate unknown output or override the provider's refusal.
+ */
 export function isTerminalAssistantError(
   message: Pick<AssistantMessage, "diagnostics" | "errorCode"> | null | undefined,
 ): boolean {
