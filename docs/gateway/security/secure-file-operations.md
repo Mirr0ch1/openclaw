@@ -16,7 +16,7 @@ OpenClaw sets fs-safe's optional native helper to **off** by default:
 - the guarded JavaScript paths support OpenClaw's normal filesystem operations;
 - disabling native loading keeps runtime behavior deterministic across desktop, Docker, CI, and bundled-app environments.
 
-The OpenClaw package includes fs-safe's prebuilt native helpers for Linux x64/arm64 (glibc and musl), macOS x64/arm64, and Windows x64. Runtime entries and the packaged sealed worker share one native asset tree. No separate platform package, download, or compiler is needed. Loading these helpers remains optional.
+A normal installation of `@openclaw/fs-safe` selects its matching native platform package for Linux x64/arm64 (glibc or musl), macOS x64/arm64, or Windows x64. OpenClaw uses that dependency directly instead of copying every platform binary into its own package. No compiler or runtime download is needed. Keep optional dependencies enabled if you use native mode `require` or native-only operations; `--omit=optional` removes the matching helper.
 
 OpenClaw only changes the _default_. An explicit setting always wins:
 
@@ -24,7 +24,7 @@ OpenClaw only changes the _default_. An explicit setting always wins:
 # Default OpenClaw behavior: guarded JavaScript fs-safe paths.
 OPENCLAW_FS_SAFE_NATIVE_MODE=off
 
-# Prefer native primitives when the bundled platform helper loads.
+# Prefer native primitives when the installed platform helper loads.
 OPENCLAW_FS_SAFE_NATIVE_MODE=auto
 
 # Fail closed when an operation needs native support and the binding is unavailable.
@@ -33,7 +33,7 @@ OPENCLAW_FS_SAFE_NATIVE_MODE=require
 
 The generic fs-safe environment name also works: `FS_SAFE_NATIVE_MODE`.
 
-fs-safe 0.5 temporarily maps the retired `FS_SAFE_PYTHON_MODE` and `OPENCLAW_FS_SAFE_PYTHON_MODE` values to native modes and emits a deprecation warning. Migrate those names before fs-safe 0.6; Python interpreter path settings are no longer used.
+Replace retired `FS_SAFE_PYTHON_MODE` and `OPENCLAW_FS_SAFE_PYTHON_MODE` settings with the corresponding native mode names. Python interpreter path settings are no longer used.
 
 Use `require` (not `auto`) when native primitives are part of your security posture. `auto` uses the guarded JavaScript implementation when the platform binding is unavailable.
 
@@ -53,7 +53,7 @@ This covers OpenClaw's normal threat model: trusted gateway code handling untrus
 
 ## What native acceleration adds
 
-The bundled native helper provides policy-free filesystem primitives used by fs-safe for create-only writes, guarded hard-link publication, asynchronous sidecar creation, and explicit no-replace rename publication. Linux uses `openat2` and `renameat2`; macOS uses descriptor-relative component checks and `renameatx_np`; Windows uses handle-relative operations and replacement-disabled rename.
+The native helper provides policy-free filesystem primitives used by fs-safe for create-only writes, guarded hard-link publication, asynchronous sidecar creation, and explicit no-replace rename publication. Linux uses `openat2` and `renameat2`; macOS uses descriptor-relative component checks and `renameatx_np`; Windows uses handle-relative operations and replacement-disabled rename.
 
 The TypeScript layer still owns policy, validation, retries, cleanup, and fallback decisions. Native support narrows filesystem race windows; it does not turn fs-safe into a sandbox.
 

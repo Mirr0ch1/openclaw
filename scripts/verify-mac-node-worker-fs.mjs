@@ -25,18 +25,18 @@ await scoped.create("native-create-proof", created);
 assert.deepEqual(fs.readFileSync(path.join(home, "native-write-proof")), Buffer.from(written));
 assert.deepEqual(fs.readFileSync(path.join(home, "native-create-proof")), Buffer.from(created));
 
-// Dependency imports and symlinks into node_modules can succeed while the
-// bundled loader is broken. Require the exact OpenClaw asset identity on Mac.
-const nativeModule = path.join(
-  packageRoot,
-  "dist/native",
-  `${process.platform}-${process.arch}`,
-  "fs-safe-native.node",
+// Verify the SDK used the installed dependency's matching native package, not
+// a stale copied binary or another package instance.
+const requireFsSafe = createRequire(
+  createRequire(path.join(packageRoot, "package.json")).resolve("@openclaw/fs-safe/package.json"),
+);
+const nativeModule = fs.realpathSync(
+  requireFsSafe.resolve(`@openclaw/fs-safe-${process.platform}-${process.arch}`),
 );
 const loaded = Object.keys(createRequire(import.meta.url).cache).filter(
   (file) => path.basename(file) === "fs-safe-native.node",
 );
-assert.deepEqual(loaded, [nativeModule], "Bundled fs-safe native module path mismatch");
+assert.deepEqual(loaded, [nativeModule], "Installed fs-safe native module path mismatch");
 console.log(
   JSON.stringify({
     architecture: process.arch,

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { readArtifactRecord } from "../../scripts/lib/build-artifact-cache.mts";
 import {
   pluginSdkEntrypoints,
-  productionPluginSdkEntrypoints,
+  publicPluginSdkEntrypoints,
 } from "../../scripts/lib/plugin-sdk-entries.mts";
 import {
   createFixture,
@@ -98,8 +98,8 @@ describe("write-plugin-sdk-entry-dts", () => {
 
   it("publishes fresh canonical partitions with stable bytes and public nominal identity", () => {
     const { root, write, writeDeclarations, production, qa } = createFixture();
-    expect(production).toEqual(
-      expect.arrayContaining(productionPluginSdkEntrypoints.map((entry) => `plugin-sdk/${entry}`)),
+    expect(production.toSorted()).toEqual(
+      publicPluginSdkEntrypoints.map((entry) => `plugin-sdk/${entry}`).toSorted(),
     );
     expect(qa).toEqual(
       expect.arrayContaining(pluginSdkEntrypoints.map((entry) => `plugin-sdk/${entry}`)),

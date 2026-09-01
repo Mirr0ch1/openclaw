@@ -6,9 +6,12 @@ import type { UserConfig } from "tsdown";
 import {
   collectBundledPluginBuildEntries,
   collectChannelConfigDoctorBuildEntries,
+  collectPluginDeclarationSourceEntries,
+  collectRootPackageExcludedExtensionDirs,
   NON_PACKAGED_BUNDLED_PLUGIN_DIRS,
+  parseDockerSelectedPluginBuildIdFilter,
 } from "./scripts/lib/bundled-plugin-build-entries.mjs";
-import { fsSafeNativeCopy } from "./scripts/lib/fs-safe-native-assets.mts";
+import { createClaudeAgentSdkAssetPlugin } from "./scripts/lib/claude-agent-sdk-assets.mts";
 import {
   buildPluginSdkEntrySources,
   pluginSdkEntrypoints,
@@ -290,14 +293,12 @@ function withExternalPackageSubpaths(options: { neverBundle: string[] }) {
 
 const rootDependencyOptions = withExternalPackageSubpaths({
   neverBundle: [
-    // The root runtime loads the SDK as its own package; never inline a transitive
-    // copy and relocate its package identity or package-relative assets into dist.
-    "@anthropic-ai/claude-agent-sdk",
     "@anthropic-ai/vertex-sdk",
     "@discordjs/voice",
     "@larksuiteoapi/node-sdk",
     "@matrix-org/matrix-sdk-crypto-nodejs",
     "@openclaw/ai",
+    "@openclaw/fs-safe",
     "@slack/bolt",
     "@slack/web-api",
     "@vitest/expect",
@@ -321,15 +322,15 @@ function shouldNeverBundleDeclarationDependency(id: string): boolean {
   // Arrow's relative module augmentations must stay beside their package modules.
   return (
     shouldNeverBundleDependency(id) ||
-    ["zod", "apache-arrow"].some((name) => id === name || id.startsWith(`${name}/`))
+    ["@anthropic-ai/claude-agent-sdk", "zod", "apache-arrow"].some(
+      (name) => id === name || id.startsWith(`${name}/`),
+    )
   );
 }
 
 function shouldAlwaysBundleDependency(id: string): boolean {
   return (
     id === "openclaw/plugin-sdk/ssrf-runtime-internal" ||
-    id === "@openclaw/fs-safe" ||
-    id.startsWith("@openclaw/fs-safe/") ||
     id === "@openclaw/normalization-core" ||
     id.startsWith("@openclaw/normalization-core/") ||
     id === "@openclaw/retry" ||
@@ -559,8 +560,12 @@ function shouldExternalizeTerminalCoreDependency(id: string): boolean {
 
 const coreDistEntries = buildCoreDistEntries();
 const dockerE2eHarnessEntries = buildDockerE2eHarnessEntries();
-const rootBundledPluginBuildEntries = bundledPluginBuildEntries.filter(
-  ({ id }) => shouldBuildPrivateQaEntries || !NON_PACKAGED_BUNDLED_PLUGIN_DIRS.has(id),
+const rootPackageExcludedPluginDirs = collectRootPackageExcludedExtensionDirs();
+const dockerSelectedPluginIds = parseDockerSelectedPluginBuildIdFilter();
+const rootBundledPluginBuildEntries = bundledPluginBuildEntries.filter(({ id }) =>
+  NON_PACKAGED_BUNDLED_PLUGIN_DIRS.has(id)
+    ? shouldBuildPrivateQaEntries
+    : !rootPackageExcludedPluginDirs.has(id) || dockerSelectedPluginIds?.has(id),
 );
 
 function buildUnifiedDistEntries(): Record<string, string> {
@@ -652,12 +657,28 @@ function normalizeDeclarationEntrySource(source: string): string {
 function buildUnifiedDeclarationPartitions(
   entries: Record<string, string>,
 ): Array<{ name: string; sources: string[] }> {
-  const sortedEntries = Object.entries(entries).toSorted(([left], [right]) =>
-    left.localeCompare(right),
+  const publicPluginSdkEntryNames = new Set(
+    publicPluginSdkEntrypoints.map((entry) => `plugin-sdk/${entry}`),
   );
-  const baseEntries = sortedEntries.filter(
-    ([name]) => !name.startsWith("plugin-sdk/") && !name.startsWith("extensions/"),
+  const pluginContracts = listBundledPluginEntrySources(
+    rootBundledPluginBuildEntries.map((plugin) => ({
+      id: plugin.id,
+      sourceEntries: collectPluginDeclarationSourceEntries(
+        plugin.packageJson,
+        plugin.sourceEntries,
+      ),
+    })),
   );
+  // Runtime entrypoints include workers, lazy loaders, and private implementation
+  // sidecars. Only the library root, typed SDK, and plugin contracts own declarations.
+  const sortedEntries = Object.entries(entries)
+    .filter(([name]) =>
+      name.startsWith("plugin-sdk/")
+        ? shouldBuildPrivateQaEntries || publicPluginSdkEntryNames.has(name)
+        : name === "index" || Object.hasOwn(pluginContracts, name),
+    )
+    .toSorted(([left], [right]) => left.localeCompare(right));
+  const baseEntries = sortedEntries.filter(([name]) => name === "index");
   const pluginSdkEntries = sortedEntries.filter(([name]) => name.startsWith("plugin-sdk/"));
   const extensionEntriesById = new Map<string, UnifiedEntry[]>();
   for (const entry of sortedEntries) {
@@ -674,9 +695,8 @@ function buildUnifiedDeclarationPartitions(
     extensionEntriesById.set(extensionId, extensionEntries);
   }
 
-  const publicPluginSdkEntryNames = new Set(
-    publicPluginSdkEntrypoints.map((entry) => `plugin-sdk/${entry}`),
-  );
+  // Keep memory-bounded partitions. Outside private QA the private SDK partition
+  // has no emit roots, so the declaration plugin performs no compiler work for it.
   const pluginSdkPartitions = [
     pluginSdkEntries.filter(([name]) => publicPluginSdkEntryNames.has(name)),
     pluginSdkEntries.filter(([name]) => !publicPluginSdkEntryNames.has(name)),
@@ -767,8 +787,7 @@ const configs = [
       // and bundled hooks in one graph so runtime singletons are emitted once.
       entry: unifiedDistEntries,
       deps: unifiedDeps,
-      copy: fsSafeNativeCopy,
-      plugins: [createStateSchemaInlinePlugin()],
+      plugins: [createClaudeAgentSdkAssetPlugin(), createStateSchemaInlinePlugin()],
     },
     false,
   ),

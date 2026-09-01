@@ -12,9 +12,9 @@ import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 const builds = useAutoCleanupTempDirTracker(afterAll);
 const fixtures = useAutoCleanupTempDirTracker(afterEach);
 const helper = path.resolve("scripts/verify-mac-node-worker-fs.mjs");
-const dependency = path.dirname(
-  createRequire(import.meta.url).resolve("@openclaw/fs-safe/package.json"),
-);
+const require = createRequire(import.meta.url);
+const dependency = path.dirname(require.resolve("@openclaw/fs-safe/package.json"));
+const nativePackageName = `@openclaw/fs-safe-${process.platform}-${process.arch}`;
 
 // This verifier consumes Mach-O Mac worker payloads; exercise both Mac slices
 // with their selected Node executables in package proof, not simulated platforms.
@@ -40,11 +40,7 @@ describe.skipIf(process.platform !== "darwin")("Mac worker bundled filesystem pr
     for (const bundle of bundles) {
       await bundle[Symbol.asyncDispose]();
     }
-    // Keep the template populated even if the producer omits assets; each probe
-    // selects its native path independently.
-    fs.cpSync(path.join(dependency, "dist/native"), path.join(compiled, "dist/native"), {
-      recursive: true,
-    });
+    expect(fs.existsSync(path.join(compiled, "dist/native"))).toBe(false);
     fs.writeFileSync(path.join(compiled, "package.json"), '{"type":"module"}');
   });
 
@@ -52,21 +48,22 @@ describe.skipIf(process.platform !== "darwin")("Mac worker bundled filesystem pr
     const directory = fixtures.make("openclaw-worker-fs-proof-");
     const runtime = path.join(directory, "runtime");
     const packageRoot = path.join(runtime, "lib/node_modules/openclaw");
-    fs.cpSync(compiled, packageRoot, {
-      recursive: true,
-      filter: (source) => source !== path.join(compiled, "dist/native"),
-    });
+    fs.cpSync(compiled, packageRoot, { recursive: true });
     const home = path.join(directory, "home");
     fs.mkdirSync(home);
     const dependencyRoot = path.join(packageRoot, "node_modules/@openclaw/fs-safe");
     fs.cpSync(dependency, dependencyRoot, { recursive: true });
-    const target = `${process.platform}-${process.arch}/fs-safe-native.node`;
+    const nativePackageRoot = path.join(packageRoot, "node_modules", nativePackageName);
+    const nativeSource = createRequire(path.join(dependency, "package.json")).resolve(
+      nativePackageName,
+    );
+    fs.cpSync(path.dirname(nativeSource), nativePackageRoot, { recursive: true });
     return {
       runtime,
       packageRoot,
       home,
-      native: path.join(packageRoot, "dist/native", target),
-      dependencyNative: path.join(dependencyRoot, "dist/native", target),
+      nativePackageRoot,
+      native: fs.realpathSync(path.join(nativePackageRoot, path.basename(nativeSource))),
     };
   }
 
@@ -81,36 +78,15 @@ describe.skipIf(process.platform !== "darwin")("Mac worker bundled filesystem pr
     return result;
   }
 
-  it("rejects an omitted OpenClaw native path even when direct dependency hashing succeeds", () => {
-    const { runtime, packageRoot, home, native, dependencyNative } = fixture();
-    const direct = probe(packageRoot, home, [
-      "--input-type=module",
-      "--eval",
-      `
-import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import fs from "node:fs";
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
-const require = createRequire(process.argv[1] + "/package.json");
-const { sha256File } = await import(pathToFileURL(require.resolve("@openclaw/fs-safe/durability")));
-fs.writeFileSync("direct-proof", "direct dependency");
-assert.deepEqual(await sha256File("direct-proof"), {
-  bytes: 17, digest: createHash("sha256").update("direct dependency").digest("hex"),
-});
-console.log(JSON.stringify(Object.keys(require.cache).filter(file => file.endsWith("fs-safe-native.node"))));
-`,
-      packageRoot,
-    ]);
-    expect(direct.status, direct.stderr).toBe(0);
-    expect(JSON.parse(direct.stdout)).toEqual([dependencyNative]);
-    expect(fs.existsSync(native)).toBe(false);
+  it("rejects omitted optional helpers through SDK and worker package verification", () => {
+    const { runtime, packageRoot, home, nativePackageRoot } = fixture();
+    fs.rmSync(nativePackageRoot, { recursive: true });
 
     const result = probe(packageRoot, home);
     expect(result.status, result.stderr).toBe(1);
     expect(result.stderr).toContain("helper-unavailable");
     expect(result.stderr).toContain("MODULE_NOT_FOUND");
-    expect(result.stderr).toContain(native);
+    expect(result.stderr).toContain(nativePackageName);
 
     const node = path.join(runtime, "bin/node");
     fs.mkdirSync(path.dirname(node));
@@ -165,17 +141,13 @@ registerHooks({
     );
     expect(verifier.error).toBeUndefined();
     expect(verifier.status, verifier.stderr).toBe(1);
-    expect(verifier.stderr).toContain(`Cannot find module '${native}'`);
+    expect(verifier.stderr).toContain(`Cannot find module '${nativePackageName}'`);
     expect(verifier.stderr).toContain("helper-unavailable");
     expect(verifier.stderr).toContain("MODULE_NOT_FOUND");
   });
 
-  it("accepts completed SDK write/create bytes and exactly the bundled native cache path", () => {
+  it("accepts SDK write/create bytes from the matching installed platform package", () => {
     const { packageRoot, home, native } = fixture();
-    // This probe supplies the bundled payload; the other probes choose missing or misplaced paths.
-    fs.cpSync(path.join(dependency, "dist/native"), path.join(packageRoot, "dist/native"), {
-      recursive: true,
-    });
     const result = probe(packageRoot, home);
     expect(result.status, result.stderr).toBe(0);
     expect(fs.readFileSync(path.join(home, "native-write-proof"), "utf8")).toBe(
@@ -192,26 +164,24 @@ registerHooks({
     });
   });
 
-  it.each(["dependency", "wrong-target"])("rejects a native cache path from %s", (location) => {
-    const { packageRoot, home, native, dependencyNative } = fixture();
-    let misplaced = dependencyNative;
-    if (location === "wrong-target") {
-      misplaced = path.join(packageRoot, "dist/native/wrong-target/fs-safe-native.node");
-      fs.mkdirSync(path.dirname(misplaced), { recursive: true });
-      fs.copyFileSync(dependencyNative, misplaced);
-    }
-    fs.mkdirSync(path.dirname(native), { recursive: true });
-    fs.symlinkSync(misplaced, native);
+  it("does not recover an omitted platform package from a stale dist native tree", () => {
+    const { packageRoot, home, native, nativePackageRoot } = fixture();
+    const staleNative = path.join(
+      packageRoot,
+      "dist/native",
+      `${process.platform}-${process.arch}`,
+      "fs-safe-native.node",
+    );
+    fs.mkdirSync(path.dirname(staleNative), { recursive: true });
+    fs.copyFileSync(native, staleNative);
+    fs.rmSync(nativePackageRoot, { recursive: true });
     const result = probe(packageRoot, home);
     expect(result.status, result.stderr).toBe(1);
-    expect(result.stderr).toContain("Bundled fs-safe native module path mismatch");
-    expect(result.stderr).toContain(misplaced);
-    // The real operations succeeded; only their dependency/wrong-target origin rejects proof.
+    expect(result.stderr).toContain("helper-unavailable");
+    expect(result.stderr).toContain(nativePackageName);
     expect(fs.readFileSync(path.join(home, "native-write-proof"), "utf8")).toBe(
-      "bundled worker write proof\n",
+      "before replacement\n",
     );
-    expect(fs.readFileSync(path.join(home, "native-create-proof"), "utf8")).toBe(
-      "bundled worker create proof\n",
-    );
+    expect(fs.existsSync(path.join(home, "native-create-proof"))).toBe(false);
   });
 });

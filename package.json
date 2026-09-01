@@ -2064,7 +2064,6 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
-    "@anthropic-ai/claude-agent-sdk": "0.3.241",
     "@anthropic-ai/sdk": "0.120.0",
     "@clack/core": "1.4.3",
     "@clack/prompts": "1.7.0",
@@ -2078,7 +2077,7 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "@mozilla/readability": "0.6.0",
     "@openclaw/ai": "workspace:*",
-    "@openclaw/fs-safe": "0.5.6",
+    "@openclaw/fs-safe": "0.7.0",
     "@openclaw/proxyline": "0.3.7",
     "@silvia-odwyer/photon-node": "0.3.4",
     "@trycua/cua-driver": "0.21.0",
@@ -2133,6 +2132,7 @@
   "devDependencies": {
     "@a2ui/lit": "0.10.3",
     "@a2ui/web_core": "0.10.6",
+    "@anthropic-ai/claude-agent-sdk": "0.3.241",
     "@copilotkit/aimock": "1.39.0",
     "@lit-labs/signals": "0.3.0",
     "@lit/context": "1.1.6",

@@ -25,6 +25,4 @@ export const vitestWorkerBuildEntries = {
   // Real provider preparation uses packaged JavaScript, avoiding per-child source transforms.
   "extensions/anthropic/index": "extensions/anthropic/index.ts",
   "test-support/anthropic-preparation": "test/scripts/anthropic-preparation-probe.ts",
-  // Exercise native writes through the existing plugin facade in the private graph.
-  "plugin-sdk/file-access-runtime": "src/plugin-sdk/file-access-runtime.ts",
 };
