@@ -23,6 +23,12 @@ import { discoverCodexSource } from "./source.js";
 
 const appServerRequest = vi.hoisted(() => vi.fn());
 const sourceAppServerClientScope = vi.hoisted(() => vi.fn());
+const readCodexCliActiveApiKey = vi.hoisted(() => vi.fn());
+
+vi.mock("openclaw/plugin-sdk/provider-auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/provider-auth")>()),
+  readCodexCliActiveApiKey,
+}));
 
 vi.mock("../app-server/request.js", () => ({
   requestCodexAppServerJson: appServerRequest,
@@ -202,6 +208,7 @@ afterEach(async () => {
 
 describe("buildCodexMigrationProvider", () => {
   beforeEach(() => {
+    readCodexCliActiveApiKey.mockReset().mockReturnValue(null);
     appServerRequest.mockRejectedValue(new Error("codex app-server unavailable"));
     sourceAppServerClientScope.mockImplementation(
       async (
@@ -1049,6 +1056,11 @@ describe("buildCodexMigrationProvider", () => {
   it("reports late-created Codex API key config auth profile conflicts before writing", async () => {
     const fixture = await createCodexFixture();
     const reportDir = path.join(fixture.root, "report");
+    readCodexCliActiveApiKey.mockReturnValue({
+      type: "api_key",
+      provider: "openai",
+      key: "sk-codex",
+    });
     await writeFile(
       path.join(fixture.codexHome, "auth.json"),
       JSON.stringify({ OPENAI_API_KEY: "sk-codex" }),
@@ -1089,6 +1101,40 @@ describe("buildCodexMigrationProvider", () => {
       }),
     );
     expect(loadTargetAuthStore(fixture).profiles["openai:codex-import"]).toBeUndefined();
+  });
+
+  it("imports an active Codex API key from non-file credential storage", async () => {
+    const fixture = await createCodexFixture();
+    readCodexCliActiveApiKey.mockReturnValue({
+      type: "api_key",
+      provider: "openai",
+      key: "sk-keyring-active",
+    });
+    const configState: MigrationProviderContext["config"] = {
+      agents: { defaults: { workspace: fixture.workspaceDir } },
+    };
+    const provider = buildCodexMigrationProvider();
+    const ctx = makeContext({
+      source: fixture.codexHome,
+      stateDir: fixture.stateDir,
+      workspaceDir: fixture.workspaceDir,
+      config: configState,
+      runtime: createConfigRuntime(configState),
+      includeSecrets: true,
+    });
+
+    const plan = await provider.plan(ctx);
+    expect(findItem(plan.items, "auth:openai:api-key")).toMatchObject({
+      details: { credentialKind: "api_key" },
+    });
+    const result = await provider.apply(ctx, plan);
+
+    expect(findItem(result.items, "auth:openai:api-key").status).toBe("migrated");
+    expect(loadTargetAuthStore(fixture).profiles["openai:codex-import"]).toMatchObject({
+      type: "api_key",
+      provider: "openai",
+      key: "sk-keyring-active",
+    });
   });
 
   it("skips Codex OAuth import when the source account changes after planning", async () => {

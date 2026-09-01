@@ -14,7 +14,7 @@ import {
   buildApiKeyCredential,
   buildOpenAICodexCredentialExtra,
   buildOauthProviderAuthResult,
-  readCodexCliAuthFileApiKey,
+  readCodexCliActiveApiKey,
   readCodexCliCredentialsCached,
   resolveOpenAICodexAuthIdentity,
   resolveOpenAICodexImportProfileName,
@@ -151,7 +151,7 @@ async function buildCodexOAuthCredential(
 async function buildCodexApiKeyCredential(
   source: CodexAuthSource,
 ): Promise<CodexAuthCredential | null> {
-  const credential = readCodexCliAuthFileApiKey({ codexHome: source.codexHome });
+  const credential = readCodexCliActiveApiKey({ codexHome: source.codexHome });
   if (!credential) {
     return null;
   }

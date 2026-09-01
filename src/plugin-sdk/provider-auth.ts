@@ -69,7 +69,7 @@ export {
 } from "./provider-auth-write-compat.js";
 export { resolveEnvApiKey } from "../agents/model-auth-env.js";
 export {
-  readCodexCliAuthFileApiKey,
+  readCodexCliActiveApiKey,
   readCodexCliCredentialsCached,
 } from "../agents/cli-credentials.js";
 export { readClaudeCliCredentialsCached } from "./provider-auth-claude-compat.js";
