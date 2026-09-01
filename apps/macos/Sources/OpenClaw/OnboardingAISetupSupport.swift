@@ -233,17 +233,6 @@ extension OnboardingAISetupModel {
     }
 
     struct AuthOption: Identifiable, Equatable, Decodable {
-        static let activation = AuthOption(
-            id: "activation",
-            brandId: nil,
-            label: "Connect your AI",
-            hint: nil,
-            groupLabel: nil,
-            icon: nil,
-            website: nil,
-            kind: "activation",
-            featured: false)
-
         let id: String
         let brandId: String?
         let label: String
@@ -272,6 +261,36 @@ extension OnboardingAISetupModel {
         let brandId: String?
         let icon: String?
         let website: String?
+    }
+
+    /// Unconfirmed requests still carry cancellation intent when admission replies late.
+    enum ProviderAuthCancellation: Equatable {
+        case requesting
+        case unconfirmed
+    }
+
+    func activationAuthOption(for request: ActivationRequest) -> AuthOption {
+        let id: String
+        let presentation: CandidatePresentation?
+        switch request {
+        case let .candidate(kind, _, _, _):
+            id = kind
+            presentation = self.candidatePresentation[kind]
+        case let .manual(_, provider):
+            id = provider.id
+            presentation = CandidatePresentation(
+                brandId: provider.brandId, icon: provider.icon, website: provider.website)
+        }
+        return AuthOption(
+            id: id,
+            brandId: presentation?.brandId,
+            label: request.label,
+            hint: nil,
+            groupLabel: nil,
+            icon: presentation?.icon,
+            website: presentation?.website,
+            kind: "activation",
+            featured: false)
     }
 
     enum ProviderWizardKind: Equatable {
@@ -333,7 +352,7 @@ extension OnboardingAISetupModel {
     }
 
     func continueProviderAuth() {
-        guard let step = authStep else { return }
+        guard let step = authStep, wizardStepExecutor(step) != "gateway" else { return }
         let value: AnyCodable? = switch wizardStepType(step) {
         case "text": AnyCodable(self.authText)
         case "select": self.selectedAuthWizardOption?.value

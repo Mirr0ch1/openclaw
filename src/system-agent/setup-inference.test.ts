@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createWizardPrompter } from "../../test/helpers/wizard-prompter.js";
 import { listAgentEntries, resolveAgentDir } from "../agents/agent-scope-config.js";
 import { readAuthProfileStoreForTest } from "../agents/auth-profiles/oauth-test-utils.js";
 import { upsertAuthProfileWithLock } from "../agents/auth-profiles/profiles.js";
@@ -1511,6 +1512,61 @@ async function runCodexSetupWithFinalConfig(params: {
 }
 
 describe("activateSetupInference", () => {
+  it.each(["success", "empty-reply", "error", "cancelled", "commit-error"] as const)(
+    "reports verification and finalization progress through %s",
+    async (outcome) => {
+      const events: string[] = [];
+      const controller = new AbortController();
+      const configHarness = createPreRosterConfigTransformHarness();
+      const pending = activateSetupInference({
+        kind: "claude-cli",
+        surface: "cli",
+        signal: controller.signal,
+        prompter: createWizardPrompter({
+          progress: (label) => {
+            events.push(label);
+            return {
+              update: (message) => events.push(message),
+              stop: () => events.push("stopped"),
+            };
+          },
+        }),
+        onCommitStarted: () => {
+          events.push("commit");
+          if (outcome === "commit-error") {
+            throw new Error("commit rejected");
+          }
+        },
+        deps: {
+          runCliAgent: vi.fn(async (params: SuccessfulRunParams) => {
+            events.push("probe");
+            if (outcome === "cancelled") {
+              controller.abort();
+            }
+            if (outcome === "error") {
+              throw new Error("provider unavailable");
+            }
+            return outcome === "empty-reply"
+              ? { payloads: [] }
+              : await successfulRunner("claude-cli", "claude-opus-5")(params);
+          }) as never,
+          transformConfigWithPendingPluginInstalls: configHarness.transform as never,
+        },
+      });
+      if (outcome === "commit-error") {
+        await expect(pending).rejects.toThrow("commit rejected");
+      } else {
+        expect((await pending).ok).toBe(outcome === "success");
+      }
+      expect(events).toEqual([
+        "Testing your AI connection…",
+        "probe",
+        ...(["success", "commit-error"].includes(outcome) ? ["Finishing AI setup…", "commit"] : []),
+        "stopped",
+      ]);
+    },
+  );
+
   it.each([new WizardCancelledError(), new WizardNavigationError("back")])(
     "preserves $name from a runtime capability review",
     async (controlFlowError) => {
@@ -2982,7 +3038,7 @@ describe("activateSetupInference", () => {
         authChoice: "openai",
         useRealAuthProfileStore: true,
         workspace: "/tmp/openclaw-workspace",
-        prompter: { note: vi.fn(async () => {}) } as never,
+        prompter: createWizardPrompter(),
         deps: {
           readConfigFileSnapshot: mockConfigSnapshot(initialConfig, {
             includeMetadata: true,
@@ -3083,7 +3139,7 @@ describe("activateSetupInference", () => {
         kind: "provider-auth",
         authChoice: "local-test",
         workspace: "/tmp/openclaw-workspace",
-        prompter: { note: vi.fn(async () => {}) } as never,
+        prompter: createWizardPrompter(),
         deps: {
           readConfigFileSnapshot: mockConfigSnapshot(initialConfig, {
             includeMetadata: true,

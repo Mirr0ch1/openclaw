@@ -1,9 +1,11 @@
+import AppKit
 import ConcurrencyExtras
 import CryptoKit
 import Foundation
 import ObjectiveC
 import OpenClawChatUI
 import OpenClawProtocol
+import SwiftUI
 import Testing
 @testable import OpenClaw
 @testable import OpenClawKit
@@ -253,7 +255,8 @@ private func detectedSetupResponse(
         {"type":"res","id":"\(id)","ok":true,"payload":{
           "candidates":[{"kind":"\(kind)","label":"Test AI","detail":"installed",
             "modelRef":"\(modelRef)","recommended":false,"credentials":false}],
-          "manualProviders":[{"id":"openai-api-key","label":"OpenAI API key","hint":null}],
+          "manualProviders":[{"id":"openai-api-key","brandId":"openai","icon":"fixture-key-icon",
+            "label":"OpenAI API key","hint":null}],
           "prepareOptions":[
             {"id":"ollama","brandId":"ollama","label":"Ollama",
               "hint":"Connect to an Ollama server and select a cloud or local model",
@@ -309,7 +312,8 @@ private func selectableCandidatesDetectedSetupResponse(id: String) -> Data {
         """
         {"type":"res","id":"\(id)","ok":true,"payload":{
           "candidates":[
-            {"kind":"codex-cli","label":"Codex CLI","detail":"installed",
+            {"kind":"codex-cli","brandId":"openai","icon":"fixture-candidate-icon",
+             "label":"Codex CLI","detail":"installed",
              "modelRef":"openai/gpt-5.5","recommended":false,"credentials":true},
             {"kind":"claude-cli","label":"Claude Code","detail":"installed",
              "modelRef":"claude-cli/claude-opus-4-8","recommended":false,"credentials":true}],
@@ -770,6 +774,37 @@ private func setupAdmissionBusyResponse(id: String, confirmed: Bool = true) -> D
         """.utf8)
 }
 
+@MainActor
+private func inspectAISetupSheet(
+    _ model: OnboardingAISetupModel,
+    colorScheme: ColorScheme = .light) async -> (labels: [String], buttons: [String: Bool], size: NSSize)
+{
+    let hosting = NSHostingView(rootView: OnboardingAISetupSheet(model: model).environment(\.colorScheme, colorScheme))
+    hosting.frame = NSRect(x: 0, y: 0, width: 500, height: 500)
+    hosting.layoutSubtreeIfNeeded()
+    await settleQueuedAISetupTasks()
+    hosting.layoutSubtreeIfNeeded()
+    var labels: [String] = []
+    var buttons: [String: Bool] = [:]
+    var visited = Set<ObjectIdentifier>()
+    func visit(_ element: any NSAccessibilityProtocol) {
+        guard visited.insert(ObjectIdentifier(element)).inserted else { return }
+        let text = [element.accessibilityLabel(), element.accessibilityTitle(), element.accessibilityValue() as? String]
+            .compactMap(\.self)
+        labels.append(contentsOf: text)
+        if element.accessibilityRole() == .button {
+            for label in text {
+                buttons[label] = element.isAccessibilityEnabled()
+            }
+        }
+        for child in element.accessibilityChildren() ?? [] {
+            if let child = child as? any NSAccessibilityProtocol { visit(child) }
+        }
+    }
+    visit(hosting)
+    return (labels, buttons, hosting.fittingSize)
+}
+
 @Suite(.serialized)
 @MainActor
 struct OnboardingAISetupTests {
@@ -924,6 +959,9 @@ struct OnboardingAISetupTests {
         let recorder = AISetupRequestRecorder()
         let cancellationFails = LockIsolated(true)
         let accepts = ["accept", "error"].contains(decision)
+        let reviewMessage = Array(
+            repeating: "Review the staged runtime package and its capabilities.",
+            count: manual ? 30 : 1).joined(separator: "\n")
         let defaults = try #require(isolatedAISetupDefaults(prefix: "ActivationConsent"))
         let session = makeAISetupRequestSession(
             recorder: recorder,
@@ -962,7 +1000,7 @@ struct OnboardingAISetupTests {
                         payload = ["done": false, "status": "running", "step": [
                             "id": "review", "type": "note", "executor": "client",
                             "title": "Plugin capabilities",
-                            "message": "Review the staged runtime package and its capabilities.",
+                            "message": reviewMessage,
                         ]]
                     }
                 case "wizard.cancel":
@@ -1011,6 +1049,14 @@ struct OnboardingAISetupTests {
             try await Task.sleep(nanoseconds: 5_000_000)
         }
         #expect(model.authStep?.title == "Plugin capabilities")
+        #expect(model.activeAuthOption?.label == (manual ? "OpenAI API key" : "Codex CLI"))
+        #expect(model.activeAuthOption?.brandId == "openai")
+        #expect(model.activeAuthOption?.icon == (manual ? "fixture-key-icon" : "fixture-candidate-icon"))
+        let reviewSheet = await inspectAISetupSheet(model)
+        #expect(reviewSheet.labels.contains(reviewMessage))
+        #expect(reviewSheet.size.height <= 500)
+        if manual { #expect(reviewSheet.size.height > 260) }
+        #expect(reviewSheet.buttons["Continue"] == true)
         #expect(!model.connected)
         model.continueProviderAuth()
         for _ in 0..<400 where model.authStep?.id != "consent" {
@@ -1018,6 +1064,9 @@ struct OnboardingAISetupTests {
         }
         #expect(model.authStep.map(wizardStepType) == "confirm")
         #expect(!model.authConfirmation)
+        let consentSheet = await inspectAISetupSheet(model)
+        #expect(consentSheet.labels.contains("Confirm"))
+        #expect(consentSheet.buttons["Submit"] == true)
         if decision == "retry-cancel" {
             model.cancelProviderAuth()
             for _ in 0..<400 where model.authError == nil {
@@ -1025,6 +1074,10 @@ struct OnboardingAISetupTests {
             }
             #expect(model.authError != nil)
             #expect(model.authBusy)
+            let retrySheet = await inspectAISetupSheet(model)
+            #expect(retrySheet.buttons["Cancel"] == true)
+            #expect(!retrySheet.labels.contains("Requesting cancellation…"))
+            #expect(retrySheet.labels.contains("Cancellation not confirmed"))
             cancellationFails.setValue(false)
             model.cancelProviderAuth()
         } else if decision == "cancel" {
@@ -1060,7 +1113,8 @@ struct OnboardingAISetupTests {
                     "The Gateway setup request failed. Show details to inspect or copy the error.")
                 #expect(failure.detail == (decision == "error"
                         ? "AI access was saved, but could not be applied."
-                        : "AI setup ended before its result was received. OpenClaw will verify the Gateway before trying again."))
+                        :
+                        "AI setup ended before its result was received. OpenClaw will verify the Gateway before trying again."))
             }
         }
         let requests = await recorder.snapshot()
@@ -1136,6 +1190,14 @@ struct OnboardingAISetupTests {
 
         await terminal.waitUntilStarted()
         model.cancelProviderAuth()
+        if !terminalReply, !confirmedCancellation {
+            await cancellation.waitUntilStarted()
+            let pendingSheet = await inspectAISetupSheet(model)
+            #expect(pendingSheet.labels.contains("Requesting cancellation…"))
+            #expect(pendingSheet.buttons["Cancel"] == false)
+            #expect(pendingSheet.buttons["Submit"] == nil)
+            #expect(model.activeAuthOption != nil)
+        }
         _ = await waitForAISetupRequests(recorder, count: 5)
         await settleQueuedAISetupTasks()
         if confirmedCancellation {
@@ -1301,7 +1363,12 @@ struct OnboardingAISetupTests {
         model.userSelect(kind: "claude-cli")
 
         #expect(model.selectedKind == "codex-cli")
-        #expect(model.activeAuthOption != nil)
+        #expect(model.activeAuthOption?.label == "Codex CLI")
+        let startingSheet = await inspectAISetupSheet(model)
+        #expect(startingSheet.labels.contains("Preparing your AI connection…"))
+        #expect(startingSheet.buttons["Submit"] == nil)
+        #expect(startingSheet.size.width == 500)
+        #expect((220...260).contains(startingSheet.size.height))
         await startGate.release()
         await activation.value
         #expect(await harness.recorder.snapshot().methods.filter {
@@ -1309,7 +1376,8 @@ struct OnboardingAISetupTests {
         }.count == 1)
     }
 
-    @Test func `prepare starts the shared wizard and polls gateway progress`() async throws {
+    @Test(arguments: [ColorScheme.light, .dark])
+    func `prepare starts the shared wizard and polls gateway progress`(colorScheme: ColorScheme) async throws {
         let recorder = AISetupRequestRecorder()
         let frames = AISetupSocketGeneration()
         let completion = AISetupRequestGate()
@@ -1396,6 +1464,15 @@ struct OnboardingAISetupTests {
         #expect(model.isPreparingModel)
         #expect(model.authStep.map(wizardStepType) == "progress")
         #expect(model.authStep?.message == "Downloading model: 80%")
+        let progressSheet = await inspectAISetupSheet(model, colorScheme: colorScheme)
+        #expect(progressSheet.labels.contains("Downloading model: 80%"))
+        #expect(progressSheet.labels.contains(option.label))
+        #expect(progressSheet.buttons["Submit"] == nil)
+        #expect(progressSheet.buttons["Continue"] == nil)
+        #expect(progressSheet.buttons["Cancel"] == true)
+        model.continueProviderAuth()
+        await settleQueuedAISetupTasks()
+        #expect(await recorder.snapshot().methods.count == requests.methods.count)
 
         await completion.release()
         for _ in 0..<400 where !model.connected {
