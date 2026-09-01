@@ -49,10 +49,10 @@ const oversizedAccountingLedger = `### Release accounting
 
 ### Pull requests
 
-${"- [#123 — Contribution](https://github.com/openclaw/openclaw/pull/123) — by @contributor.\n".repeat(20_000)}
+${"- [#123](https://github.com/openclaw/openclaw/pull/123) Contribution (@contributor).\n".repeat(20_000)}
 ### Direct commits
 
-- [\`1234567\` — Direct fix](https://github.com/openclaw/openclaw/commit/1234567890123456789012345678901234567890) — by Contributor.`;
+- [\`1234567\`](https://github.com/openclaw/openclaw/commit/1234567890123456789012345678901234567890) Direct fix (Contributor).`;
 
 describe("package-changelog", () => {
   it("maps release-channel package versions to package changelog candidate headings", () => {
@@ -220,7 +220,7 @@ ${record}
     expect(packaged).toContain(
       "https://github.com/openclaw/openclaw/blob/v2026.5.28/CHANGELOG.md#pull-requests",
     );
-    expect(packaged).not.toContain("[#123 — Contribution]");
+    expect(packaged).not.toContain("[#123](https://github.com/openclaw/openclaw/pull/123)");
     expect(packaged).not.toContain("### Direct commits");
   });
 
