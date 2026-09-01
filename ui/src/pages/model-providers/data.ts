@@ -110,6 +110,24 @@ function authKindForProvider(provider: ModelAuthStatusProvider): ModelProviderAu
   }
 }
 
+function hasActiveProviderAccess(card: ModelProviderCard): boolean {
+  if (card.catalogStatus === "auth-rejected") {
+    return false;
+  }
+  if (card.auth) {
+    return card.auth.kind === "ok" || card.auth.kind === "expiring" || card.auth.kind === "api-key";
+  }
+  return card.catalogStatus === "ready" || card.runtimeAvailableModelCount > 0;
+}
+
+function compareProviderCards(left: ModelProviderCard, right: ModelProviderCard): number {
+  return (
+    Number(hasActiveProviderAccess(right)) - Number(hasActiveProviderAccess(left)) ||
+    left.displayName.localeCompare(right.displayName) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
 function findDraft(drafts: CardDraft[], ids: string[]): CardDraft | undefined {
   return drafts.find((draft) => ids.some((id) => draft.ids.has(id)));
 }
@@ -367,7 +385,7 @@ export function buildModelProviderCards(input: ModelProviderCardsInput): ModelPr
         apiKeySupported === undefined ? {} : { apiKeySupported },
       );
     })
-    .toSorted((a, b) => a.displayName.localeCompare(b.displayName));
+    .toSorted(compareProviderCards);
 }
 
 export type DefaultModelSelection = {

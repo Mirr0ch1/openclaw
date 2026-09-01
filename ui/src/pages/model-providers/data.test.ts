@@ -342,15 +342,56 @@ describe("buildModelProviderCards", () => {
     });
   });
 
-  it("sorts cards by display name", () => {
+  it("sorts providers with active access first, then by display name", () => {
     const cards = buildModelProviderCards({
       ...EMPTY_INPUT,
-      models: [
-        catalogEntry({ provider: "openai", id: "openai/gpt", available: true }),
-        catalogEntry({ provider: "anthropic", id: "anthropic/claude", available: true }),
-      ],
+      authStatus: authStatus(
+        [
+          {
+            provider: "xai",
+            displayName: "xAI",
+            status: "ok",
+            profiles: [{ profileId: "xai:falcon", type: "oauth", status: "ok" }],
+          },
+          {
+            provider: "openai",
+            displayName: "OpenAI",
+            status: "expiring",
+            profiles: [{ profileId: "openai:falcon", type: "token", status: "expiring" }],
+          },
+          {
+            provider: "deepseek",
+            displayName: "DeepSeek",
+            status: "static",
+            profiles: [],
+            apiKey: { source: "env", envVar: "DEEPSEEK_API_KEY" },
+          },
+          {
+            provider: "mistral",
+            displayName: "Mistral",
+            status: "expired",
+            profiles: [{ profileId: "mistral:old", type: "token", status: "expired" }],
+          },
+          { provider: "cohere", displayName: "Cohere", status: "missing", profiles: [] },
+        ],
+        [
+          {
+            provider: "github-copilot",
+            apiKeySupported: false,
+            quickApiKeySetup: false,
+            accessOptions: [{ id: "copilot", label: "GitHub Copilot", mode: "login" }],
+          },
+        ],
+      ),
     });
-    expect(cards.map((card) => card.id)).toEqual(["anthropic", "openai"]);
+    expect(cards.map((card) => card.id)).toEqual([
+      "deepseek",
+      "openai",
+      "xai",
+      "cohere",
+      "github-copilot",
+      "mistral",
+    ]);
   });
 
   it("keeps API key provenance and config-only providers", () => {
@@ -369,8 +410,8 @@ describe("buildModelProviderCards", () => {
         },
       ]),
     });
-    expect(cards.map((card) => card.id)).toEqual(["mistral", "openai"]);
-    expect(cards[1]).toMatchObject({
+    expect(cards.map((card) => card.id)).toEqual(["openai", "mistral"]);
+    expect(firstCard(cards)).toMatchObject({
       apiKey: { source: "env", envVar: "OPENAI_API_KEY" },
       configKey: "OpenAI",
       configAuthMode: "api-key",
