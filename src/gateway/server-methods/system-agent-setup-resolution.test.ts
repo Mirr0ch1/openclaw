@@ -10,6 +10,7 @@ import { WizardNextResultSchema } from "../../../packages/gateway-protocol/src/s
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { buildPluginCapabilityConsentReview } from "../../plugins/capability-summary.js";
 import { resetCommandQueueStateForTest } from "../../process/command-queue.test-support.js";
+import { createDeferredCore } from "../../shared/deferred.js";
 import { createPluginCapabilityConsentPrompter } from "../../wizard/plugin-capability-consent.js";
 import { WizardSession } from "../../wizard/session.js";
 import { handlers as modelsAuthLoginHandlers } from "./models-auth-login.js";
@@ -641,6 +642,58 @@ describe("models.authLogin.start", () => {
     await running;
     expect(persisted).toBe(false);
     expect(wizardSessions.has("disconnect-login")).toBe(false);
+  });
+
+  it("finishes provider login when its request owner disconnects after persistence starts", async () => {
+    const persistenceStarted = createDeferredCore();
+    const releasePersistence = createDeferredCore();
+    let persisted = false;
+    modelsAuthLoginMocks.runModelsAuthLoginFlowCore.mockImplementationOnce(async (options) => {
+      await options.prompter.deviceCode?.({ title: "xAI OAuth", code: "XAI-CODE" });
+      await options.beforePersistentEffect?.();
+      persistenceStarted.resolve();
+      await releasePersistence.promise;
+      persisted = true;
+      return {
+        providerId: "xai",
+        methodId: "oauth",
+        modelAccess: "enabled",
+        profiles: [{ profileId: "xai:owner", provider: "xai", mode: "oauth" }],
+      };
+    });
+    const { wizardSessions, context } = makeContext();
+    const { calls, respond } = makeRespond();
+    const requestOwner = new AbortController();
+
+    const running = expectDefined(
+      modelsAuthLoginHandlers["models.authLogin.start"],
+      "models.authLogin.start handler",
+    )({
+      params: { sessionId: "locked-disconnect-login", authChoice: "xai-oauth" },
+      respond,
+      context,
+      signal: requestOwner.signal,
+    } as never);
+    await vi.waitFor(() => expect(calls[0]?.ok).toBe(true));
+    const session = expectDefined(
+      wizardSessions.get("locked-disconnect-login"),
+      "provider login session",
+    );
+    const prompt = await callWizardNext(context, { sessionId: "locked-disconnect-login" });
+    void callWizardNext(context, {
+      sessionId: "locked-disconnect-login",
+      answer: { stepId: expectDefined(prompt.step, "device code step").id, value: null },
+    });
+    await persistenceStarted.promise;
+
+    requestOwner.abort();
+    expect(session.getStatus()).toBe("running");
+    releasePersistence.resolve();
+
+    await running;
+    expect(persisted).toBe(true);
+    expect(session.getStatus()).toBe("done");
+    expect(wizardSessions.has("locked-disconnect-login")).toBe(false);
   });
 
   it("runs guided secret auth through a masked wizard step", async () => {
