@@ -16,7 +16,7 @@ const PROVIDER_LOGIN_SESSION_TIMEOUT_MS = 25 * 60 * 1000;
 
 /** Gateway handler for credential-only provider login through the shared wizard transport. */
 export const handlers: GatewayRequestHandlers = {
-  "models.authLogin.start": async ({ params, respond, context }) => {
+  "models.authLogin.start": async ({ params, respond, context, signal: requestSignal }) => {
     if (
       !assertValidParams(
         params,
@@ -44,7 +44,7 @@ export const handlers: GatewayRequestHandlers = {
       );
       return;
     }
-    await startGatewayWizardSession({
+    const loginSession = await startGatewayWizardSession({
       context,
       respond,
       sessionId: params.sessionId,
@@ -83,5 +83,23 @@ export const handlers: GatewayRequestHandlers = {
         }
       },
     });
+    if (!loginSession || !requestSignal) {
+      return;
+    }
+    const cancel = () => loginSession.cancel();
+    requestSignal.addEventListener("abort", cancel, { once: true });
+    try {
+      if (requestSignal.aborted) {
+        cancel();
+      }
+      // Keep the transport abort owner alive after the start response. The wizard itself owns
+      // the durable-effect fence: cancellation stops pre-commit work and locked work settles.
+      await loginSession.whenSettled();
+    } finally {
+      requestSignal.removeEventListener("abort", cancel);
+      if (requestSignal.aborted) {
+        context.purgeWizardSession(params.sessionId);
+      }
+    }
   },
 };

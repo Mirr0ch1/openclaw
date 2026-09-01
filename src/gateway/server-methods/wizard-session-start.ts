@@ -12,23 +12,23 @@ export async function startGatewayWizardSession(params: {
   sessionId: string;
   timeoutMs: number;
   run: WizardRunner;
-}): Promise<boolean> {
+}): Promise<WizardSession | null> {
   if (params.context.wizardSessions.has(params.sessionId)) {
     params.respond(
       false,
       undefined,
       errorShape(ErrorCodes.INVALID_REQUEST, "wizard session already exists"),
     );
-    return false;
+    return null;
   }
   const session = await createAdmittedWizardSession(
     () => new WizardSession(params.run, { timeoutMs: params.timeoutMs }),
   );
   if (!session) {
     respondSetupAdmissionBusy(params.respond);
-    return false;
+    return null;
   }
   params.context.wizardSessions.set(params.sessionId, session);
   params.respond(true, { sessionId: params.sessionId, done: false, status: "running" }, undefined);
-  return true;
+  return session;
 }

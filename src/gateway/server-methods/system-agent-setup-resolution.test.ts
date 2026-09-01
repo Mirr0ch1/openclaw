@@ -602,6 +602,47 @@ describe("models.authLogin.start", () => {
     expect(session.cancel()).toBe(false);
   });
 
+  it("cancels provider login when its request owner disconnects before persistence", async () => {
+    let persisted = false;
+    modelsAuthLoginMocks.runModelsAuthLoginFlowCore.mockImplementationOnce(async (options) => {
+      await options.prompter.deviceCode?.({
+        title: "xAI OAuth",
+        code: "XAI-CODE",
+      });
+      options.signal?.throwIfAborted();
+      persisted = true;
+      return {
+        providerId: "xai",
+        methodId: "oauth",
+        modelAccess: "enabled",
+        profiles: [{ profileId: "xai:owner", provider: "xai", mode: "oauth" }],
+      };
+    });
+    const { wizardSessions, context } = makeContext();
+    const { calls, respond } = makeRespond();
+    const requestOwner = new AbortController();
+
+    const running = expectDefined(
+      modelsAuthLoginHandlers["models.authLogin.start"],
+      "models.authLogin.start handler",
+    )({
+      params: { sessionId: "disconnect-login", authChoice: "xai-oauth" },
+      respond,
+      context,
+      signal: requestOwner.signal,
+    } as never);
+    await vi.waitFor(() => expect(calls[0]?.ok).toBe(true));
+    const session = expectDefined(wizardSessions.get("disconnect-login"), "provider login session");
+    await callWizardNext(context, { sessionId: "disconnect-login" });
+
+    requestOwner.abort();
+
+    await vi.waitFor(() => expect(session.getStatus()).toBe("cancelled"));
+    await running;
+    expect(persisted).toBe(false);
+    expect(wizardSessions.has("disconnect-login")).toBe(false);
+  });
+
   it("runs guided secret auth through a masked wizard step", async () => {
     modelsAuthLoginMocks.resolveManifestProviderAuthChoice.mockReturnValueOnce({
       pluginId: "groq",
