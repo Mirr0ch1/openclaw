@@ -361,3 +361,67 @@ it("suppresses semantic whitespace when attributed rendering trims it away", () 
     }),
   ).toEqual([]);
 });
+
+describe("authored links across coalesced whitespace", () => {
+  const href = "https://example.test";
+  const paragraph = "A".repeat(78);
+  const attributedProfile = FormatCapabilityProfile.define({
+    mechanism: "ranges",
+    constructs: { linkLabel: "fallback" },
+    chunk: { limit: 80, unit: "chars" },
+  });
+
+  it.each([
+    {
+      name: "one authored link across retained whitespace",
+      markdown: `[alpha${" ".repeat(80)}omega](${href})`,
+      attributed: false,
+      expected: [
+        `<a href="${href}">alpha${" ".repeat(40)}</a>`,
+        `<a href="${href}">${" ".repeat(40)}omega</a>`,
+      ],
+      linkCounts: [1, 1],
+    },
+    {
+      name: "two adjacent authored links with the same URL",
+      markdown: `**${paragraph}**\n\n[a](${href})[b](${href})`,
+      attributed: false,
+      expected: [`*${paragraph}*`, `\n\n<a href="${href}">a</a><a href="${href}">b</a>`],
+      linkCounts: [0, 2],
+    },
+    {
+      name: "one authored link across trimmed whitespace",
+      markdown: `[alpha${" ".repeat(240)}omega](${href})`,
+      attributed: true,
+      expected: [`alpha (${href})`, `omega (${href})`],
+      linkCounts: [1, 1],
+    },
+  ])("preserves $name", ({ markdown, attributed, expected, linkCounts }) => {
+    const chunks = renderMarkdownIRChunksWithinLimit({
+      ir: markdownToIR(markdown),
+      limit: 80,
+      renderChunk: (chunk) =>
+        attributed
+          ? renderMarkdownWithAttributedRanges(
+              chunk,
+              { styleMap: {}, trimEnd: true },
+              attributedProfile,
+            ).text
+          : renderMarkdownWithMarkers(chunk, {
+              styleMarkers: { bold: { open: "*", close: "*" } },
+              escapeText: (text) => text,
+              buildLink: (link) => ({
+                start: link.start,
+                end: link.end,
+                open: `<a href="${link.href}">`,
+                close: "</a>",
+              }),
+            }),
+      measureRendered: (rendered) => rendered.length,
+    });
+
+    expect(chunks.map((chunk) => chunk.rendered)).toEqual(expected);
+    expect(chunks.map((chunk) => chunk.source.links.length)).toEqual(linkCounts);
+    expect(chunks.every((chunk) => chunk.rendered.length <= 80)).toBe(true);
+  });
+});
