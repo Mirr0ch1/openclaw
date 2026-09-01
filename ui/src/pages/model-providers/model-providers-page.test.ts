@@ -1,7 +1,10 @@
 /* @vitest-environment jsdom */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ModelsProbeResult } from "../../api/types.ts";
+import { createGatewayHarness } from "../../lib/config/config-test-harness.ts";
+import { createRuntimeConfigCapability } from "../../lib/config/runtime-config-capability.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import type { DefaultModelSelection } from "./data.ts";
 import { EMPTY_MODEL_PROVIDERS_DATA } from "./load.ts";
@@ -640,6 +643,87 @@ describe("ModelProvidersPage agent scope", () => {
         ([method, params]) => method === "models.list" && params?.refresh === true,
       ),
     ).toBe(false);
+  });
+
+  it("saves a pending Models draft before login and refreshes their combined config", async () => {
+    const { context, request, snapshot } = createHarness("main");
+    const originalRequest = request.getMockImplementation()!;
+    const order: string[] = [];
+    let revision = 1;
+    let storedConfig: Record<string, unknown> = {
+      agents: { defaults: { modelPolicy: { allow: ["openai/gpt-5.6-sol"] } } },
+    };
+    request.mockImplementation(async (method: string, params?: unknown) => {
+      if (method === "config.get") {
+        order.push("config.get");
+        const raw = `${JSON.stringify(storedConfig, null, 2)}\n`;
+        return {
+          config: structuredClone(storedConfig),
+          raw,
+          hash: `hash-${revision}`,
+          configRevisionHash: `hash-${revision}`,
+          appliedConfigHash: `hash-${revision}`,
+          valid: true,
+          issues: [],
+        };
+      }
+      if (method === "config.set") {
+        order.push("config.set");
+        storedConfig = JSON.parse((params as { raw: string }).raw) as Record<string, unknown>;
+        revision += 1;
+        return { hash: `hash-${revision}` };
+      }
+      if (method === "models.authLogin.start") {
+        order.push("models.authLogin.start");
+        const agents = storedConfig.agents as {
+          defaults?: { modelPolicy?: { allow?: string[] } };
+        };
+        storedConfig = {
+          ...storedConfig,
+          agents: {
+            ...agents,
+            defaults: {
+              ...agents.defaults,
+              modelPolicy: {
+                ...agents.defaults?.modelPolicy,
+                allow: [...(agents.defaults?.modelPolicy?.allow ?? []), "xai/*"],
+              },
+            },
+          },
+        };
+        revision += 1;
+        return {
+          sessionId: (params as { sessionId?: string }).sessionId,
+          done: true,
+          status: "done",
+        };
+      }
+      return await originalRequest(method);
+    });
+    const gatewayHarness = createGatewayHarness(snapshot.client as GatewayBrowserClient);
+    const runtimeConfig = createRuntimeConfigCapability(gatewayHarness.gateway);
+    Object.assign(context, { gateway: gatewayHarness.gateway, runtimeConfig });
+    await runtimeConfig.ensureLoaded();
+    const page = appendPage(context);
+    await waitForFast(() => expect(page.data?.config).toEqual(storedConfig));
+    order.length = 0;
+
+    runtimeConfig.patchForm(["messages", "responsePrefix"], "draft-prefix");
+    page.providerLogin.start("xai", {
+      id: "xai-oauth",
+      label: "xAI OAuth",
+      mode: "login",
+    });
+
+    await vi.waitFor(() => expect(page.messages.xai?.kind).toBe("success"));
+    expect(order.indexOf("config.set")).toBeLessThan(order.indexOf("models.authLogin.start"));
+    expect(order.indexOf("models.authLogin.start")).toBeLessThan(order.lastIndexOf("config.get"));
+    expect(storedConfig).toMatchObject({
+      messages: { responsePrefix: "draft-prefix" },
+      agents: { defaults: { modelPolicy: { allow: ["openai/gpt-5.6-sol", "xai/*"] } } },
+    });
+    expect(runtimeConfig.state.configForm).toMatchObject(storedConfig);
+    runtimeConfig.dispose();
   });
 
   it("stops queued agent-scoped logouts when route data changes the selected agent", async () => {

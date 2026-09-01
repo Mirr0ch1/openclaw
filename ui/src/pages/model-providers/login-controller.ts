@@ -1,6 +1,8 @@
 import type { ReactiveController, ReactiveControllerHost } from "lit";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { t } from "../../i18n/index.ts";
+import type { RuntimeConfigCapability } from "../../lib/config/runtime-config-capability.ts";
+import { formatUiError } from "../../lib/format-error.ts";
 import "../../styles/model-setup.css";
 import { initialWizardValue, type ModelSetupWizardState } from "../model-setup/state.ts";
 import {
@@ -14,6 +16,7 @@ import type { ModelProviderRowMessage } from "./view.ts";
 type ModelProviderLoginControllerOptions = {
   getClient: () => GatewayBrowserClient | null;
   getAgentId: () => string | null;
+  getRuntimeConfig: () => Pick<RuntimeConfigCapability, "runExternalMutation">;
   canStart: () => boolean;
   refresh: () => Promise<void>;
   setMessage: (key: string, message: ModelProviderRowMessage | null) => void;
@@ -24,6 +27,8 @@ export class ModelProviderLoginController implements ReactiveController {
   private mode: "auth" | "prepare" = "auth";
   private value: unknown;
   private cardId: string | null = null;
+  private mutationGeneration = 0;
+  private mutationActive = false;
   // Keep sign-in disabled until terminal status confirms that shared Gateway
   // admission is free; an early replacement would surface a false busy error.
   private cancellationPending = false;
@@ -52,7 +57,7 @@ export class ModelProviderLoginController implements ReactiveController {
   }
 
   get busy(): boolean {
-    return this.state.phase !== "idle" || this.cancellationPending;
+    return this.mutationActive || this.state.phase !== "idle" || this.cancellationPending;
   }
 
   start(cardId: string, option: ModelProviderAccessOption): void {
@@ -62,15 +67,17 @@ export class ModelProviderLoginController implements ReactiveController {
     this.cardId = cardId;
     this.mode = option.mode === "login" ? "auth" : "prepare";
     this.options.setMessage(cardId, null);
-    void this.runner
-      .start(
+    void this.runWizardMutation(() =>
+      this.runner.start(
         option.id,
         option.mode === "login" ? "models.authLogin.start" : "openclaw.setup.prepare.start",
-      )
-      .then((completion) => this.finish(completion));
+      ),
+    );
   }
 
   reset(): void {
+    this.mutationGeneration += 1;
+    this.mutationActive = false;
     this.cardId = null;
     if (this.cancellationPending) {
       return;
@@ -97,14 +104,60 @@ export class ModelProviderLoginController implements ReactiveController {
         this.host.requestUpdate();
       },
       onAnswer: (value, includeValue) => {
-        void this.runner.answer(value, includeValue).then((completion) => this.finish(completion));
+        void this.runWizardMutation(() => this.runner.answer(value, includeValue));
       },
       onCancel: () => this.reset(),
       onClose: () => this.reset(),
     });
   }
 
-  private async finish(completion: ModelSetupWizardCompletion | null) {
+  private async runWizardMutation(
+    task: () => Promise<ModelSetupWizardCompletion | null>,
+  ): Promise<void> {
+    const client = this.options.getClient();
+    if (!client || this.mutationActive || !this.options.canStart()) {
+      return;
+    }
+    const generation = ++this.mutationGeneration;
+    this.mutationActive = true;
+    this.host.requestUpdate();
+    try {
+      const mutation = await this.options.getRuntimeConfig().runExternalMutation(
+        async (mutationClient) => {
+          if (mutationClient !== client) {
+            throw new Error("Connection changed before provider login continued.");
+          }
+          return await task();
+        },
+        {
+          canDispatch: () =>
+            generation === this.mutationGeneration &&
+            this.options.getClient() === client &&
+            this.options.canStart(),
+          dispatchError: t("modelSetup.errors.requestFailed"),
+        },
+      );
+      if (generation !== this.mutationGeneration) {
+        return;
+      }
+      if (!mutation.ok) {
+        this.runner.fail(mutation.error);
+        return;
+      }
+      await this.finish(mutation.value, mutation.refresh.ok ? undefined : mutation.refresh.error);
+    } catch (error) {
+      if (generation === this.mutationGeneration) {
+        this.runner.fail(formatUiError(error, t("modelSetup.errors.requestFailed")));
+      }
+    } finally {
+      if (generation === this.mutationGeneration) {
+        this.mutationActive = false;
+        this.host.requestUpdate();
+      }
+    }
+  }
+
+  private async finish(completion: ModelSetupWizardCompletion | null, refreshWarning?: string) {
     if (
       !completion ||
       (completion.startMethod !== "models.authLogin.start" &&
@@ -124,6 +177,7 @@ export class ModelProviderLoginController implements ReactiveController {
             ? "modelProviders.login.done"
             : "common.configured",
         ),
+        ...(refreshWarning ? { warning: refreshWarning } : {}),
       });
     }
     this.host.requestUpdate();

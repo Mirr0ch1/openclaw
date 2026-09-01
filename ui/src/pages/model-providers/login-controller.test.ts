@@ -1,10 +1,21 @@
 import { render, type ReactiveControllerHost } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import type { RuntimeConfigCapability } from "../../lib/config/runtime-config-capability.ts";
 import { ModelProviderLoginController } from "./login-controller.ts";
 
 const XAI_LOGIN_OPTION = { id: "xai-oauth", label: "xAI OAuth", mode: "login" } as const;
 const VLLM_SETUP_OPTION = { id: "vllm", label: "vLLM", mode: "setup" } as const;
+
+function createRuntimeConfig(client: GatewayBrowserClient) {
+  return {
+    runExternalMutation: vi.fn(async (task) => ({
+      ok: true as const,
+      value: await task(client),
+      refresh: { ok: true as const },
+    })),
+  } satisfies Pick<RuntimeConfigCapability, "runExternalMutation">;
+}
 
 describe("ModelProviderLoginController", () => {
   it("cancels an admitted Gateway wizard on reset before another login starts", async () => {
@@ -61,6 +72,7 @@ describe("ModelProviderLoginController", () => {
     const controller = new ModelProviderLoginController(host, {
       getClient: () => client,
       getAgentId: () => "main",
+      getRuntimeConfig: () => createRuntimeConfig(client),
       canStart: () => true,
       refresh,
       setMessage: vi.fn(),
@@ -126,9 +138,11 @@ describe("ModelProviderLoginController", () => {
       addController: vi.fn(),
       requestUpdate: vi.fn(),
     } as unknown as ReactiveControllerHost;
+    const client = { request } as unknown as GatewayBrowserClient;
     const controller = new ModelProviderLoginController(host, {
-      getClient: () => ({ request }) as unknown as GatewayBrowserClient,
+      getClient: () => client,
       getAgentId: () => "main",
+      getRuntimeConfig: () => createRuntimeConfig(client),
       canStart: () => true,
       refresh: vi.fn(async () => undefined),
       setMessage: vi.fn(),
@@ -166,11 +180,13 @@ describe("ModelProviderLoginController", () => {
       throw new Error(`unexpected request ${method}`);
     });
     const setMessage = vi.fn();
+    const client = { request } as unknown as GatewayBrowserClient;
     const controller = new ModelProviderLoginController(
       { addController: vi.fn(), requestUpdate: vi.fn() } as unknown as ReactiveControllerHost,
       {
-        getClient: () => ({ request }) as unknown as GatewayBrowserClient,
+        getClient: () => client,
         getAgentId: () => "main",
+        getRuntimeConfig: () => createRuntimeConfig(client),
         canStart: () => true,
         refresh: vi.fn(async () => undefined),
         setMessage,
@@ -194,17 +210,81 @@ describe("ModelProviderLoginController", () => {
     );
   });
 
+  it("coordinates provider login start and answer with config mutations", async () => {
+    const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "models.authLogin.start") {
+        return { sessionId: params?.sessionId, done: false, status: "running" };
+      }
+      if (method === "wizard.next" && !params?.answer) {
+        return {
+          done: false,
+          status: "running",
+          step: { id: "confirm", type: "confirm", message: "Continue?", executor: "client" },
+        };
+      }
+      if (method === "wizard.next") {
+        return { done: true, status: "done" };
+      }
+      throw new Error(`unexpected request ${method}`);
+    });
+    const client = { request } as unknown as GatewayBrowserClient;
+    const runtimeConfig = createRuntimeConfig(client);
+    const controller = new ModelProviderLoginController(
+      { addController: vi.fn(), requestUpdate: vi.fn() } as unknown as ReactiveControllerHost,
+      {
+        getClient: () => client,
+        getAgentId: () => "main",
+        getRuntimeConfig: () => runtimeConfig,
+        canStart: () => true,
+        refresh: vi.fn(async () => undefined),
+        setMessage: vi.fn(),
+      },
+    );
+
+    controller.start("xai", XAI_LOGIN_OPTION);
+    await vi.waitFor(() => expect(runtimeConfig.runExternalMutation).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "wizard.next",
+        expect.objectContaining({ sessionId: expect.any(String) }),
+        expect.anything(),
+      ),
+    );
+    const container = document.createElement("div");
+    render(controller.render(), container);
+    const confirm = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Yes",
+    );
+    expect(confirm).toBeDefined();
+
+    confirm?.click();
+
+    await vi.waitFor(() => expect(runtimeConfig.runExternalMutation).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "wizard.next",
+        expect.objectContaining({
+          sessionId: expect.any(String),
+          answer: { stepId: "confirm", value: true },
+        }),
+        expect.anything(),
+      ),
+    );
+  });
+
   it("renders setup choices with prepare-mode copy", () => {
     const request = vi.fn(async (_method: string, params?: { sessionId?: string }) => ({
       sessionId: params?.sessionId,
       done: true,
       status: "done",
     }));
+    const client = { request } as unknown as GatewayBrowserClient;
     const controller = new ModelProviderLoginController(
       { addController: vi.fn(), requestUpdate: vi.fn() } as unknown as ReactiveControllerHost,
       {
-        getClient: () => ({ request }) as unknown as GatewayBrowserClient,
+        getClient: () => client,
         getAgentId: () => "main",
+        getRuntimeConfig: () => createRuntimeConfig(client),
         canStart: () => true,
         refresh: vi.fn(async () => undefined),
         setMessage: vi.fn(),

@@ -164,6 +164,7 @@ export class ModelProvidersPage extends OpenClawLightDomElement {
   private readonly providerLogin = new ModelProviderLoginController(this, {
     getClient: () => this.gateway.client,
     getAgentId: () => this.selectedAgentId || null,
+    getRuntimeConfig: () => this.context.runtimeConfig,
     canStart: () => this.canMutate(),
     refresh: () => this.refresh({ force: false }),
     setMessage: (key, message) => this.setMessage(key, message),

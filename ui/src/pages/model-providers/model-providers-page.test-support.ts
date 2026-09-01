@@ -143,6 +143,11 @@ export function createHarness(initialScopeId: string) {
     save: vi.fn(async () => true),
     apply: vi.fn(async () => true),
     discardDraft: vi.fn(async () => undefined),
+    runExternalMutation: vi.fn(async <T>(task: (client: GatewayBrowserClient) => Promise<T>) => ({
+      ok: true as const,
+      value: await task(snapshot.client),
+      refresh: { ok: true as const },
+    })),
     subscribe,
   };
   const context = {
