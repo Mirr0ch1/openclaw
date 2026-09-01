@@ -3,6 +3,7 @@ import { OAuthRefreshFailureError } from "../../agents/auth-profiles/oauth-refre
 import { createCliOutputFailoverError } from "../../agents/cli-runner/output-error.js";
 import { FailoverError } from "../../agents/failover-error.js";
 import { MissingProviderAuthError, ProviderAuthError } from "../../agents/model-auth.js";
+import { buildProviderLoginRecovery } from "../provider-login-recovery.js";
 import type { TemplateContext } from "../templating.js";
 import {
   setupAgentRunnerExecutionTestState,
@@ -31,6 +32,12 @@ const CODEX_LOGIN_PRESENTATION = {
 };
 
 describe("executeAgentTurn: authentication failures", () => {
+  it("does not guess a login provider from unattributed OAuth failure evidence", () => {
+    expect(
+      buildProviderLoginRecovery({ provider: null, oauthReason: "invalid_grant" }),
+    ).toBeUndefined();
+  });
+
   it("surfaces gateway reauth guidance without a profile id", async () => {
     state.runEmbeddedAgentMock.mockRejectedValueOnce(
       new OAuthRefreshFailureError({ provider: "openai", message: "refresh_token_reused" }),

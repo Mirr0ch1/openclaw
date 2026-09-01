@@ -32,6 +32,9 @@ function resolveRecoveryLoginChoice(
   // Recovery supplies a provider id, not an explicit auth choice. Prefer its one chat route
   // before an exact choice id such as "openai" can select a Control UI-only method.
   const providerId = normalizeLowercaseStringOrEmpty(provider);
+  if (!providerId) {
+    return { status: "unsupported", choices: [] };
+  }
   const direct = listProviderChannelLoginChoices().filter(
     (choice) =>
       choice.mode === "chat" && normalizeLowercaseStringOrEmpty(choice.providerId) === providerId,
