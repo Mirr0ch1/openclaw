@@ -4,6 +4,10 @@ import { MAX_DATE_TIMESTAMP_MS } from "@openclaw/normalization-core/number-coerc
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../config/config.js";
+import {
+  getRuntimeConfigWriteApplication,
+  type RuntimeConfigWriteApplicationStatus,
+} from "../../config/runtime-write-application.js";
 import type { ProviderPlugin } from "../../plugins/types.js";
 import type { RuntimeEnv } from "../../runtime.js";
 
@@ -1782,6 +1786,40 @@ describe("modelsAuthLoginCommand", () => {
       "xai/*",
     ]);
     expect(currentConfig.agents?.defaults).not.toHaveProperty("models");
+  });
+
+  it("waits for the running Gateway to apply the enabled provider policy", async () => {
+    currentConfig = {
+      agents: {
+        defaults: { modelPolicy: { allow: ["openai/gpt-5.6-sol"] } },
+      },
+    };
+    useXaiOAuthLogin();
+    let settleApplication: ((status: RuntimeConfigWriteApplicationStatus) => void) | undefined;
+    mocks.updateConfig.mockImplementationOnce(
+      async (
+        mutator: (cfg: OpenClawConfig) => OpenClawConfig,
+        options: { writeOptions?: object },
+      ) => {
+        lastUpdatedConfig = mutator(currentConfig);
+        currentConfig = lastUpdatedConfig;
+        const application = getRuntimeConfigWriteApplication(options.writeOptions ?? {});
+        const claim = application?.claim();
+        settleApplication = claim?.settle;
+        return lastUpdatedConfig;
+      },
+    );
+
+    let completed = false;
+    const login = loginWithXai().then((result) => {
+      completed = true;
+      return result;
+    });
+    await vi.waitFor(() => expect(settleApplication).toBeTypeOf("function"));
+
+    expect(completed).toBe(false);
+    settleApplication?.("applied");
+    await expect(login).resolves.toMatchObject({ modelAccess: "enabled" });
   });
 
   it("keeps an existing provider wildcard without rewriting config", async () => {

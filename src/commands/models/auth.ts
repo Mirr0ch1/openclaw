@@ -38,6 +38,10 @@ import { parseDurationMs } from "../../cli/parse-duration.js";
 import { logConfigUpdated } from "../../config/logging.js";
 import { normalizeAgentModelRefForConfig } from "../../config/model-input.js";
 import { parseModelPolicyWildcardRef } from "../../config/model-policy-ref.js";
+import {
+  attachRuntimeConfigWriteApplication,
+  createRuntimeConfigWriteApplication,
+} from "../../config/runtime-write-application.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { isRemoteEnvironment } from "../../infra/remote-env.js";
 import {
@@ -60,6 +64,7 @@ import type {
   ProviderAuthResult,
   ProviderPlugin,
 } from "../../plugins/types.js";
+import { captureGatewayRootWorkAdmissionContinuationScope } from "../../process/gateway-work-admission.js";
 import type { RuntimeEnv } from "../../runtime.js";
 import { normalizeSecretInput } from "../../utils/normalize-secret-input.js";
 import { createClackPrompter } from "../../wizard/clack-prompter.js";
@@ -181,11 +186,22 @@ async function adoptProviderModelPolicy(params: {
       return "already-visible";
     }
     let changed = false;
-    await updateConfig((config) => {
-      changed = appendProviderModelPolicy({ ...params, config });
-      return config;
-    });
+    const application = createRuntimeConfigWriteApplication(
+      captureGatewayRootWorkAdmissionContinuationScope()?.run,
+    );
+    await updateConfig(
+      (config) => {
+        changed = appendProviderModelPolicy({ ...params, config });
+        return config;
+      },
+      {
+        writeOptions: attachRuntimeConfigWriteApplication({}, application),
+      },
+    );
     if (changed) {
+      if (application.claimed && (await application.result) !== "applied") {
+        throw new Error("the running Gateway did not apply the saved model policy");
+      }
       logConfigUpdated(params.runtime);
       return "enabled";
     }
