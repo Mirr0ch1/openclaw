@@ -266,6 +266,7 @@ export function prepareEmbeddedAttemptToolBase(params: {
           const allTools = createOpenClawCodingTools({
             agentId: params.sessionAgentId,
             ...toolRunContext,
+            requesterThinkingLevel: attempt.thinkLevel,
             messageChannel: attempt.messageChannel,
             clientCaps: attempt.clientCaps,
             toolBindings: attempt.toolBindings,
