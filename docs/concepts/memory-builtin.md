@@ -118,9 +118,18 @@ which support selective deletion after promotion. For coverage and limits, see
 
 Full reindexes build a replacement in a temporary database and publish the
 memory tables atomically. Concurrent searches and status reads keep using the
-published index; a failed rebuild leaves that index intact. Other agent state,
-including sessions and transcripts in the same database, is retained. Use the
-[memory index command](/cli/memory#memory-index) for memory-only repair.
+published index; a failed rebuild leaves that index intact. The embedding cache
+is bounded before publication, not after copying excess entries into the
+shared database.
+
+Other agent state, including sessions and transcripts in the same database,
+is retained. Use the [memory index command](/cli/memory#memory-index) for
+memory-only repair.
+
+`openclaw memory status` reports stored chunk text and JSON embedding bytes
+for each source (`sourceCounts[].chunkBytes` in JSON). These are payload sizes,
+not total disk usage: embedding cache, FTS/vector tables, SQLite overhead, and
+WAL/free pages are excluded.
 
 After an upgrade, automatic project and trigger recall may need to repair
 legacy provenance. That repair runs in the background. Replies continue while
