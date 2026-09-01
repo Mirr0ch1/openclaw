@@ -998,13 +998,15 @@ function loadCandidateShippedBaseline(ref: string) {
 export function validateCandidateReleaseNotes({
   changelog,
   repository,
+  sourceCommit,
   tag,
-}: StringFields<"changelog" | "repository" | "tag">) {
+}: StringFields<"changelog" | "repository" | "tag"> & { sourceCommit?: string }) {
   const rendered = renderGithubReleaseNotes({
     changelog,
     version: releaseNotesVersionForTag(tag),
     tag,
     repository,
+    sourceCommit,
   });
   return {
     status: "passed",
@@ -1926,6 +1928,7 @@ async function main() {
   const releaseNotesCheck = validateCandidateReleaseNotes({
     changelog: releaseChangelog,
     repository: options.repo,
+    sourceCommit: targetSha,
     tag: options.tag,
   });
   const releaseNotesProvenance = validateCandidateChangelogProvenance({

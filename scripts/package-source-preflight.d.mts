@@ -1,5 +1,6 @@
 type PackageSourcePreflightOptions = {
   allowUnreleasedChangelog?: boolean;
+  sourceCommit?: string;
 };
 
 export function validatePackageSource(params: {
@@ -7,6 +8,7 @@ export function validatePackageSource(params: {
   allowUnreleasedChangelog?: boolean;
   changelogContent: string;
   rootManifestContent: string;
+  sourceCommit?: string;
 }): string;
 export function validatePackageSourceRef(
   ref: string,
