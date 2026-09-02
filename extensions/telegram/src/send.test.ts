@@ -5207,6 +5207,9 @@ describe("sendMessageTelegram media group (album)", () => {
     expect(res.messageId).toBe("922");
     expect(res.receipt?.threadId).toBe("271");
     expect(res.receipt?.replyToId).toBe("500");
+    // Every accepted album message keeps kind media; only the follow-up text
+    // chunk after them is a text part.
+    expect(res.receipt?.parts.map((part) => part.kind)).toEqual(["media", "media", "text"]);
     expect(
       res.receipt?.parts.map(({ kind, index, threadId, replyToId }) => ({
         kind,
@@ -5216,7 +5219,7 @@ describe("sendMessageTelegram media group (album)", () => {
       })),
     ).toEqual([
       { kind: "media", index: 0, threadId: "271", replyToId: "500" },
-      { kind: "text", index: 1, threadId: "271", replyToId: "500" },
+      { kind: "media", index: 1, threadId: "271", replyToId: "500" },
       { kind: "text", index: 2, threadId: "271", replyToId: undefined },
     ]);
   });

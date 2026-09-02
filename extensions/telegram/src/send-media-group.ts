@@ -399,7 +399,9 @@ export async function sendTelegramMediaAlbum(
     receipt.parts = receipt.parts.map((part, index) => ({
       ...part,
       index,
-      ...(index === 0 ? { kind: "media" } : {}),
+      // Every accepted album message is physical media; only the follow-up text
+      // chunks that come after them are text parts.
+      ...(index < albumResults.length ? { kind: "media" } : {}),
       ...(mediaReplyToId &&
       (index < albumResults.length || (!textResult.receipt && !singleUseReplyTo))
         ? { replyToId: mediaReplyToId }
