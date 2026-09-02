@@ -6,7 +6,7 @@ type SchemaProperties = Record<string, TSchema>;
 type SchemaPropertiesBuilder = () => SchemaProperties;
 
 export const MESSAGE_TOOL_SEND_TEXT_DESCRIPTION =
-  'Text for action="send". A send needs message or another send payload such as media, mediaUrls, attachments, or presentation.';
+  'Text for action="send". A send needs message or another send payload such as media, attachments, or presentation.';
 
 export function buildMessageToolQuerySchemaProperties(): SchemaProperties {
   return { query: Type.Optional(Type.String()) };

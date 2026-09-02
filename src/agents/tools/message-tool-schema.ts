@@ -143,14 +143,7 @@ function buildSendSchema(options: {
     effect: Type.Optional(Type.String({ description: "Alias for effectId." })),
     media: Type.Optional(
       Type.String({
-        description:
-          "Single media URL/path. For multiple media use mediaUrls (or attachments). data: use buffer.",
-      }),
-    ),
-    mediaUrls: Type.Optional(
-      Type.Array(Type.String(), {
-        description:
-          "Multiple media URLs/paths; sent together when the channel supports grouped media, otherwise as individual attachments.",
+        description: "Single media URL/path. For multiple media use attachments. data: use buffer.",
       }),
     ),
     filename: Type.Optional(Type.String()),
@@ -171,7 +164,8 @@ function buildSendSchema(options: {
           mimeType: Type.Optional(Type.String()),
         }),
         {
-          description: "Attachments; each uses media.",
+          description:
+            "Attachments; each uses media. Multiple attachments deliver together when the channel supports grouped media, otherwise as individual messages.",
         },
       ),
     ),
