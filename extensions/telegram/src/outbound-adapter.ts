@@ -504,6 +504,9 @@ export function createTelegramOutboundAdapter(
       }),
     deliveryCapabilities: {
       pin: true,
+      // sendPayload groups 2+ media into one album and reports every accepted
+      // album item in the receipt, so core may route multi-media payloads here.
+      sendPayloadGroupsMedia: true,
       durableFinal: {
         text: true,
         media: true,

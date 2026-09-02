@@ -66,6 +66,9 @@ describe("outbound payload-transport routing", () => {
       sendText: vi.fn(async ({ text }: { text: string }) => createResult(`text:${text}`)),
       sendPayload,
       sendMedia,
+      // Album-capable payload transport: sendPayload groups the media and
+      // reports every accepted item, so core may hand over the whole list.
+      deliveryCapabilities: { sendPayloadGroupsMedia: true },
     } satisfies ChannelOutboundAdapter;
 
     const results = await deliverPayloads({
@@ -85,6 +88,39 @@ describe("outbound payload-transport routing", () => {
       "https://example.com/two.png",
     ]);
     expect(results.map((result) => result.messageId)).toEqual(["album:2"]);
+  });
+
+  it("keeps multi-media on the per-media fanout for a sequential payload sender (Zalo-shaped)", async () => {
+    // Zalo's sendPayload helper sends each attachment separately and returns
+    // only the last result; it does not declare grouped multi-media custody, so
+    // core must fan out per item instead of handing the whole list to sendPayload.
+    const sendPayload = vi.fn(async () => createResult("payload:sequential"));
+    const sendMedia = vi.fn(async ({ mediaUrl }: { mediaUrl?: string }) =>
+      createResult(`media:${mediaUrl}`),
+    );
+    const outbound = {
+      deliveryMode: "direct",
+      sendText: vi.fn(async ({ text }: { text: string }) => createResult(`text:${text}`)),
+      sendPayload,
+      sendMedia,
+    } satisfies ChannelOutboundAdapter;
+
+    const results = await deliverPayloads({
+      outbound,
+      payloads: [
+        {
+          text: "album caption",
+          mediaUrls: ["https://example.com/one.png", "https://example.com/two.png"],
+        },
+      ],
+    });
+
+    expect(sendPayload).not.toHaveBeenCalled();
+    expect(sendMedia).toHaveBeenCalledTimes(2);
+    expect(results.map((result) => result.messageId)).toEqual([
+      "media:https://example.com/one.png",
+      "media:https://example.com/two.png",
+    ]);
   });
 
   it("keeps single-media payloads on the per-media fanout", async () => {
@@ -171,6 +207,7 @@ describe("outbound payload-transport routing", () => {
       sendText: vi.fn(async ({ text }: { text: string }) => createResult(`text:${text}`)),
       sendPayload,
       sendMedia,
+      deliveryCapabilities: { sendPayloadGroupsMedia: true },
     } satisfies ChannelOutboundAdapter;
     const plugin = {
       ...createOutboundTestPlugin({ id: "matrix", outbound }),

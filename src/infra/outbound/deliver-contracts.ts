@@ -115,6 +115,13 @@ export type ChannelHandler = {
    * channels that only reconcile text/media kinds.
    */
   reconcilesDurableSendPayload?: boolean;
+  /**
+   * Whether sendPayload delivers 2+ media items as one grouped platform message
+   * with complete custody of every accepted item. Core routes multi-media
+   * payloads through sendPayload only for grouped-capable channels; everything
+   * else stays on the per-media fanout.
+   */
+  groupsMultiMediaInPayload?: boolean;
   sendFormattedText?: (
     text: string,
     overrides?: OutboundMessageSendOverrides,

@@ -362,9 +362,10 @@ export async function deliverOutboundPayloadsCore(
       const beforeCount = results.length;
       let mirroredPayload = payloadSummary;
       let mediaMessageIds: { first?: string; last?: string } | undefined;
-      // Multi-media payloads route through the channel payload transport when
-      // available so a channel can group them (e.g. Telegram albums); the simple
-      // per-media fanout only handles single-media or payload-less channels.
+      // Multi-media payloads route through the channel payload transport only
+      // when the channel declares a grouped multi-media transport (e.g. Telegram
+      // albums) — a payload helper that sends each attachment separately would
+      // otherwise drop every accepted item except the last from core custody.
       // Durable sends additionally require the channel to reconcile "payload"
       // attempts — channels that only reconcile text/media (e.g. Matrix) stay on
       // the fanout so the payload-kind assertion cannot reject before platform I/O.
@@ -373,6 +374,7 @@ export async function deliverOutboundPayloadsCore(
           sendTextOnlyErrorPayloads: deliveryHandler.sendTextOnlyErrorPayloads,
         }) ||
         (payloadSummary.mediaUrls.length >= 2 &&
+          deliveryHandler.groupsMultiMediaInPayload === true &&
           deliveryHandler.reconcilesDurableSendPayload !== false);
       if (deliveryHandler.sendPayload && routesPayloadTransport) {
         const delivery = await deliveryHandler.sendPayload(
