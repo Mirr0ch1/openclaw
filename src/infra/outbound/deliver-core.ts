@@ -365,10 +365,15 @@ export async function deliverOutboundPayloadsCore(
       // Multi-media payloads route through the channel payload transport when
       // available so a channel can group them (e.g. Telegram albums); the simple
       // per-media fanout only handles single-media or payload-less channels.
+      // Durable sends additionally require the channel to reconcile "payload"
+      // attempts — channels that only reconcile text/media (e.g. Matrix) stay on
+      // the fanout so the payload-kind assertion cannot reject before platform I/O.
       const routesPayloadTransport =
         payloadRequiresDurablePayloadTransport(effectivePayload, {
           sendTextOnlyErrorPayloads: deliveryHandler.sendTextOnlyErrorPayloads,
-        }) || payloadSummary.mediaUrls.length >= 2;
+        }) ||
+        (payloadSummary.mediaUrls.length >= 2 &&
+          deliveryHandler.reconcilesDurableSendPayload !== false);
       if (deliveryHandler.sendPayload && routesPayloadTransport) {
         const delivery = await deliveryHandler.sendPayload(
           effectivePayload,

@@ -108,6 +108,13 @@ export type ChannelHandler = {
     payload: ReplyPayload,
     overrides?: OutboundMessageSendOverrides,
   ) => Promise<OutboundDeliveryResult>;
+  /**
+   * Whether a required durable send reconciliation accepts "payload" attempts.
+   * Only set when the delivery runs with required unknown-send reconciliation;
+   * core uses it to keep multi-media payloads on the reconciled media path for
+   * channels that only reconcile text/media kinds.
+   */
+  reconcilesDurableSendPayload?: boolean;
   sendFormattedText?: (
     text: string,
     overrides?: OutboundMessageSendOverrides,

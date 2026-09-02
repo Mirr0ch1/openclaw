@@ -257,6 +257,15 @@ function createPluginHandler(
       );
     }
   };
+  // Mirrors assertUnknownSendReconciliationKind for "payload": lets core keep
+  // multi-media payloads on the reconciled media path when a required durable
+  // send would reject a payload-kind attempt before platform I/O.
+  const durableFinalForPayloadGate = params.message?.durableFinal;
+  const reconcilesDurableSendPayload =
+    params.requiredUnknownSendReconciliation !== true ||
+    durableFinalForPayloadGate?.capabilities?.reconcileUnknownSend !== true ||
+    durableFinalForPayloadGate.reconcileUnknownSendKinds === undefined ||
+    durableFinalForPayloadGate.reconcileUnknownSendKinds.payload === true;
   if (!messageText && !outbound?.sendText) {
     return null;
   }
@@ -326,6 +335,7 @@ function createPluginHandler(
     // over sendMedia), so leaving it out here silently drops media for
     // formatted-only adapters and records the fallback as a plain sent text.
     supportsMedia: Boolean(messageMedia ?? sendMedia ?? outbound?.sendFormattedMedia),
+    reconcilesDurableSendPayload,
     sanitizeText: outbound?.sanitizeText
       ? (payload) =>
           outbound.sanitizeText!({

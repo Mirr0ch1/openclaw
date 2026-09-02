@@ -19,12 +19,16 @@ const createResult = (messageId: string) => ({
 });
 
 function installOutbound(outbound: ChannelOutboundAdapter) {
+  installPlugin(createOutboundTestPlugin({ id: "matrix", outbound }));
+}
+
+function installPlugin(plugin: ReturnType<typeof createOutboundTestPlugin>) {
   setActivePluginRegistry(
     createTestRegistry([
       {
         pluginId: "matrix",
         source: "test",
-        plugin: createOutboundTestPlugin({ id: "matrix", outbound }),
+        plugin,
       },
     ]),
   );
@@ -105,5 +109,98 @@ describe("outbound payload-transport routing", () => {
     expect(results.map((result) => result.messageId)).toEqual([
       "media:https://example.com/one.png",
     ]);
+  });
+
+  it("keeps durable multi-media on the reconciled media path without payload reconciliation", async () => {
+    const sendPayload = vi.fn(async () => createResult("payload:durable"));
+    const sendMedia = vi.fn(async ({ mediaUrl }: { mediaUrl?: string }) =>
+      createResult(`media:${mediaUrl}`),
+    );
+    const outbound = {
+      deliveryMode: "direct",
+      sendText: vi.fn(async ({ text }: { text: string }) => createResult(`text:${text}`)),
+      sendPayload,
+      sendMedia,
+    } satisfies ChannelOutboundAdapter;
+    // Matrix-style durable declaration: reconciliation covers text and media
+    // only, so a payload-kind attempt must be unreachable for durable sends.
+    const plugin = {
+      ...createOutboundTestPlugin({ id: "matrix", outbound }),
+      message: {
+        durableFinal: {
+          capabilities: { text: true, media: true, reconcileUnknownSend: true },
+          reconcileUnknownSendKinds: { text: true, media: true },
+          reconcileUnknownSend: async () => ({ status: "not_sent" }),
+        },
+      },
+    };
+
+    installPlugin(plugin);
+    const payloads = [
+      {
+        text: "album caption",
+        mediaUrls: ["https://example.com/one.png", "https://example.com/two.png"],
+      },
+    ];
+    const results = await deliverOutboundPayloadsCore({
+      cfg: {},
+      channel: "matrix",
+      to: "room-parent",
+      payloads: [...payloads],
+      preparedBatch: createUnmodifiedPreparedOutboundBatch(payloads),
+      requiredUnknownSendReconciliation: true,
+    });
+
+    expect(sendPayload).not.toHaveBeenCalled();
+    expect(sendMedia).toHaveBeenCalledTimes(2);
+    expect(results.map((result) => result.messageId)).toEqual([
+      "media:https://example.com/one.png",
+      "media:https://example.com/two.png",
+    ]);
+  });
+
+  it("routes durable multi-media through sendPayload when the channel reconciles payload attempts", async () => {
+    const sendPayload = vi.fn(async (ctx: { payload: { mediaUrls?: string[]; text?: string } }) =>
+      createResult(`album:${ctx.payload.mediaUrls?.length}`),
+    );
+    const sendMedia = vi.fn(async ({ mediaUrl }: { mediaUrl?: string }) =>
+      createResult(`media:${mediaUrl}`),
+    );
+    const outbound = {
+      deliveryMode: "direct",
+      sendText: vi.fn(async ({ text }: { text: string }) => createResult(`text:${text}`)),
+      sendPayload,
+      sendMedia,
+    } satisfies ChannelOutboundAdapter;
+    const plugin = {
+      ...createOutboundTestPlugin({ id: "matrix", outbound }),
+      message: {
+        durableFinal: {
+          capabilities: { text: true, media: true, reconcileUnknownSend: true },
+          reconcileUnknownSendKinds: { text: true, media: true, payload: true },
+          reconcileUnknownSend: async () => ({ status: "not_sent" }),
+        },
+      },
+    };
+
+    installPlugin(plugin);
+    const payloads = [
+      {
+        text: "album caption",
+        mediaUrls: ["https://example.com/one.png", "https://example.com/two.png"],
+      },
+    ];
+    const results = await deliverOutboundPayloadsCore({
+      cfg: {},
+      channel: "matrix",
+      to: "room-parent",
+      payloads: [...payloads],
+      preparedBatch: createUnmodifiedPreparedOutboundBatch(payloads),
+      requiredUnknownSendReconciliation: true,
+    });
+
+    expect(sendPayload).toHaveBeenCalledTimes(1);
+    expect(sendMedia).not.toHaveBeenCalled();
+    expect(results.map((result) => result.messageId)).toEqual(["album:2"]);
   });
 });
