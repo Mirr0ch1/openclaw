@@ -340,15 +340,21 @@ export async function sendTelegramMediaAlbum(
         replyToAlreadyUsed: singleUseReplyTo && mediaUsedReplyTo,
       });
     } catch (error) {
+      // The follow-up text is the only possible host for an over-length caption
+      // or an inline keyboard: albums cannot carry either. When that text is
+      // rejected as empty content, the requested caption or controls were not
+      // delivered even though Telegram accepted the whole media group, so the
+      // accepted album must be reported as a partial delivery that keeps every
+      // album message id and the complete album receipt.
       if (!isChannelPartialDeliveryError(error) && isTelegramEmptyContentError(error)) {
-        await recordDeliveredPromptContext({ message: primary, messageId: primaryMessageId }, true);
-        return (
-          mediaDeliveryResult ?? {
-            messageId: String(primaryMessageId),
-            chatId: resolvedChatId,
-            receipt: albumReceipt,
-          }
+        await recordDeliveredPromptContext(
+          { message: primary, messageId: primaryMessageId },
+          false,
         );
+        return sender.fail(error, custodyStart, {
+          receipt: albumReceipt,
+          visibleReplySent: true,
+        });
       }
       await recordDeliveredPromptContext({ message: primary, messageId: primaryMessageId }, false);
       return sender.fail(error);

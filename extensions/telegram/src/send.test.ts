@@ -4891,6 +4891,65 @@ describe("sendMessageTelegram media group (album)", () => {
     expect(sendMediaGroup).toHaveBeenCalledTimes(1);
   });
 
+  it("reports an empty album text follow-up as a partial delivery with every album id", async () => {
+    const chatId = "123";
+    const sendMediaGroup = vi.fn().mockResolvedValue([
+      { message_id: 160, chat: { id: chatId } },
+      { message_id: 161, chat: { id: chatId } },
+    ]);
+    const sendMessage = vi.fn().mockRejectedValue(new Error("Bad Request: text must be non-empty"));
+    const api = makeTelegramApiTestMock({ sendMediaGroup, sendMessage });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    // When the album needs a separate text message to host an inline keyboard,
+    // an empty-content rejection means the controls were never delivered. The
+    // accepted album is a partial delivery, not a success: recovery must keep
+    // every accepted album message id and the complete album receipt.
+    const error = await sendMessageTelegram(chatId, "album caption", {
+      cfg: TELEGRAM_TEST_CFG,
+      token: "tok",
+      api,
+      mediaUrls: ["https://example.com/a.png", "https://example.com/b.png"],
+      buttons: [[{ text: "Open", url: "https://example.com" }]],
+    }).catch((caught: unknown) => caught);
+
+    expect(isChannelPartialDeliveryError(error)).toBe(true);
+    if (!isChannelPartialDeliveryError(error)) {
+      throw error;
+    }
+    expect([...(error.deliveryResult.messageIds ?? [])].toSorted()).toEqual(["160", "161"]);
+    expect(error.deliveryResult.receipt?.platformMessageIds).toEqual(["160", "161"]);
+    expect(sendMediaGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports an empty over-length caption follow-up as partial delivery with the album receipt", async () => {
+    const chatId = "123";
+    const sendMediaGroup = vi.fn().mockResolvedValue([
+      { message_id: 170, chat: { id: chatId } },
+      { message_id: 171, chat: { id: chatId } },
+    ]);
+    const sendMessage = vi.fn().mockRejectedValue(new Error("Bad Request: text must be non-empty"));
+    const api = makeTelegramApiTestMock({ sendMediaGroup, sendMessage });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    const error = await sendMessageTelegram(chatId, "x".repeat(1200), {
+      cfg: TELEGRAM_TEST_CFG,
+      token: "tok",
+      api,
+      mediaUrls: ["https://example.com/a.png", "https://example.com/b.png"],
+    }).catch((caught: unknown) => caught);
+
+    expect(isChannelPartialDeliveryError(error)).toBe(true);
+    if (!isChannelPartialDeliveryError(error)) {
+      throw error;
+    }
+    expect([...(error.deliveryResult.messageIds ?? [])].toSorted()).toEqual(["170", "171"]);
+    expect(error.deliveryResult.receipt?.platformMessageIds).toEqual(["170", "171"]);
+    expect(sendMediaGroup).toHaveBeenCalledTimes(1);
+  });
+
   it("falls back to separate photo sends when a media group item is not album-compatible", async () => {
     const chatId = "123";
     const sendPhoto = vi.fn().mockResolvedValue({ message_id: 200, chat: { id: chatId } });
