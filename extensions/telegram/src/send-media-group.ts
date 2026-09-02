@@ -1,7 +1,10 @@
 import { InputFile } from "grammy";
 import type { InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, Message } from "grammy/types";
 import { recordChannelActivity } from "openclaw/plugin-sdk/channel-activity-runtime";
-import { isChannelPartialDeliveryError } from "openclaw/plugin-sdk/channel-inbound";
+import {
+  createChannelPartialDeliveryError,
+  isChannelPartialDeliveryError,
+} from "openclaw/plugin-sdk/channel-inbound";
 import { createMessageReceiptFromOutboundResults } from "openclaw/plugin-sdk/channel-outbound";
 import type { MarkdownTableMode } from "openclaw/plugin-sdk/config-contracts";
 import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
@@ -183,7 +186,6 @@ export async function sendTelegramMediaAlbum(
   const groupParams: Record<string, unknown> = {
     ...preparedThreadParams,
     ...(opts.silent === true ? { disable_notification: true } : {}),
-    ...(!needsSeparateText && replyMarkup ? { reply_markup: replyMarkup } : {}),
   };
   const sendGroup = (inputs: Array<InputMediaPhoto | InputMediaVideo>) =>
     sender.request("sendMediaGroup", groupParams, (effective) =>
@@ -229,7 +231,22 @@ export async function sendTelegramMediaAlbum(
   const mediaUsedReplyTo = resolveAcceptedReplyToMessageId(acceptedMediaParams) !== undefined;
   const primaryMessageId = resolveTelegramMessageIdOrThrow(primary, "media group send");
   const resolvedChatId = String(primary.chat?.id ?? chatId);
-  const hasInlineKeyboard = !needsSeparateText && Boolean(replyMarkup);
+  // Telegram rejects reply_markup on sendMediaGroup, so the inline keyboard is
+  // attached to the accepted primary message afterwards. A failed edit keeps
+  // the delivered album but reports a partial delivery, mirroring the
+  // single-media recovery pattern.
+  let keyboardError: unknown;
+  if (!needsSeparateText && replyMarkup) {
+    try {
+      await api.editMessageReplyMarkup(resolvedChatId, primaryMessageId, {
+        reply_markup: replyMarkup,
+      });
+    } catch (editError) {
+      keyboardError = editError;
+    }
+  }
+  const hasInlineKeyboard =
+    !needsSeparateText && Boolean(replyMarkup) && keyboardError === undefined;
   const albumResults = results.map((message) => ({
     messageId: String(resolveTelegramMessageIdOrThrow(message, "media group send")),
     chatId: resolvedChatId,
@@ -309,6 +326,15 @@ export async function sendTelegramMediaAlbum(
     accountId: account.accountId,
     direction: "outbound",
   });
+
+  if (keyboardError !== undefined) {
+    // The album was delivered; only the inline keyboard edit failed.
+    throw createChannelPartialDeliveryError(keyboardError, {
+      messageIds: albumResults.map((entry) => entry.messageId),
+      receipt: albumReceipt,
+      visibleReplySent: true,
+    });
+  }
 
   // If text was too long for a caption, send it as a separate follow-up message.
   if (needsSeparateText && followUpText) {
