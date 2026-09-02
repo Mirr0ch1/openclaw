@@ -4888,6 +4888,11 @@ describe("sendMessageTelegram media group (album)", () => {
     expect(isChannelPartialDeliveryError(error)).toBe(true);
     const deliveryResult = (error as { deliveryResult?: { messageIds?: string[] } }).deliveryResult;
     expect([...(deliveryResult?.messageIds ?? [])].toSorted()).toEqual(["140", "141"]);
+    // The partial delivery must carry the complete album receipt (both accepted
+    // messages), not just the primary item's observer result.
+    const receipt = (error as { deliveryResult?: { receipt?: { platformMessageIds?: string[] } } })
+      .deliveryResult?.receipt;
+    expect(receipt?.platformMessageIds).toEqual(["140", "141"]);
     expect(sendMediaGroup).toHaveBeenCalledTimes(1);
   });
 

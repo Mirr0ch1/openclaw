@@ -285,6 +285,15 @@ export async function sendTelegramMediaAlbum(
       hasInlineKeyboard: false,
     }),
   );
+  // The complete album receipt is derived before any fallible observer runs so
+  // a report/projection failure after Telegram accepts the group reports every
+  // accepted sibling (id list AND receipt), not just the primary item's result.
+  const albumReceipt = createMessageReceiptFromOutboundResults({
+    results: albumResults,
+    kind: "media",
+    ...(albumThreadId !== undefined ? { threadId: String(albumThreadId) } : {}),
+    ...(mediaReplyToId ? { replyToId: mediaReplyToId } : {}),
+  });
   try {
     for (const [index, accepted] of acceptedParts.entries()) {
       const isPrimary = index === 0;
@@ -316,16 +325,10 @@ export async function sendTelegramMediaAlbum(
     }
   } catch (error) {
     return sender.fail(error, custodyStart, {
-      ...(mediaDeliveryResult?.receipt ? { receipt: mediaDeliveryResult.receipt } : {}),
+      receipt: albumReceipt,
       visibleReplySent: true,
     });
   }
-  const albumReceipt = createMessageReceiptFromOutboundResults({
-    results: albumResults,
-    kind: "media",
-    ...(albumThreadId !== undefined ? { threadId: String(albumThreadId) } : {}),
-    ...(mediaReplyToId ? { replyToId: mediaReplyToId } : {}),
-  });
   logTelegramOutboundSendOk({
     accountId: account.accountId,
     chatId: resolvedChatId,
