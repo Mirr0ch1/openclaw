@@ -240,59 +240,63 @@ export async function sendTelegramMediaAlbum(
     chatId: resolvedChatId,
   }));
   let mediaDeliveryResult: TelegramSendResult | undefined;
-  // Every physical album message stays in delivery custody so a later observer
-  // or follow-up failure reports all delivered ids, not just the primary one.
-  for (const [index, message] of results.entries()) {
-    const isPrimary = index === 0;
-    const messageId = resolveTelegramMessageIdOrThrow(message, "media group send");
-    await sender.accept(
-      {
-        result: message,
-        acceptedParams: groupDelivery.acceptedParams,
-        plainText: isPrimary ? (deliveredCaption ?? "") : "",
-        hasInlineKeyboard: false,
-      },
-      async () => {
-        recordSentMessage(chatId, messageId, cfg, {
-          accountId: account.accountId,
-          agentId: ownerAgentId,
-        });
-        if (!isPrimary) {
-          return;
-        }
-        const meta: { telegramDeliveredText?: string } = deliveredCaption
-          ? { telegramDeliveredText: deliveredCaption }
-          : {};
-        telegramCaptionDeliveryMetadata.add(meta);
-        mediaDeliveryResult = await reportDelivery(
-          messageId,
-          resolvedChatId,
-          message,
-          meta,
-          "media",
-          (delivery) => {
-            mediaDeliveryResult = delivery;
+  // Every accepted album message enters delivery custody BEFORE any fallible
+  // observer runs. Telegram has already accepted the whole media group, so a
+  // later report/projection failure must not strand accepted siblings outside
+  // the partial-delivery id list.
+  const custodyStart = sender.parts.length;
+  const acceptedParts = results.map((message, index) =>
+    sender.register({
+      result: message,
+      acceptedParams: groupDelivery.acceptedParams,
+      plainText: index === 0 ? (deliveredCaption ?? "") : "",
+      hasInlineKeyboard: false,
+    }),
+  );
+  try {
+    for (const [index, accepted] of acceptedParts.entries()) {
+      const isPrimary = index === 0;
+      const messageId = accepted.messageId;
+      recordSentMessage(chatId, messageId, cfg, {
+        accountId: account.accountId,
+        agentId: ownerAgentId,
+      });
+      if (!isPrimary) {
+        continue;
+      }
+      const meta: { telegramDeliveredText?: string } = deliveredCaption
+        ? { telegramDeliveredText: deliveredCaption }
+        : {};
+      telegramCaptionDeliveryMetadata.add(meta);
+      mediaDeliveryResult = await reportDelivery(
+        messageId,
+        resolvedChatId,
+        accepted.result,
+        meta,
+        "media",
+        (delivery) => {
+          mediaDeliveryResult = delivery;
+        },
+      );
+      if (!needsSeparateText) {
+        await recordDeliveredPromptContext(
+          {
+            message: accepted.result,
+            messageId,
+            ...(deliveredCaption ? { text: deliveredCaption } : {}),
+            ...(acceptedMediaParams?.message_thread_id !== undefined
+              ? { messageThreadId: acceptedMediaParams.message_thread_id }
+              : {}),
           },
+          true,
         );
-        if (!needsSeparateText) {
-          await recordDeliveredPromptContext(
-            {
-              message,
-              messageId,
-              ...(deliveredCaption ? { text: deliveredCaption } : {}),
-              ...(acceptedMediaParams?.message_thread_id !== undefined
-                ? { messageThreadId: acceptedMediaParams.message_thread_id }
-                : {}),
-            },
-            true,
-          );
-        }
-      },
-      () => ({
-        ...(mediaDeliveryResult?.receipt ? { receipt: mediaDeliveryResult.receipt } : {}),
-        visibleReplySent: true,
-      }),
-    );
+      }
+    }
+  } catch (error) {
+    return sender.fail(error, custodyStart, {
+      ...(mediaDeliveryResult?.receipt ? { receipt: mediaDeliveryResult.receipt } : {}),
+      visibleReplySent: true,
+    });
   }
   const albumReceipt = createMessageReceiptFromOutboundResults({
     results: albumResults,

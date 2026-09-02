@@ -4865,6 +4865,32 @@ describe("sendMessageTelegram media group (album)", () => {
     expect(res.messageId).toBe("132");
   });
 
+  it("registers every accepted album item before a delivery observer failure", async () => {
+    const chatId = "123";
+    const sendMediaGroup = vi.fn().mockResolvedValue([
+      { message_id: 140, chat: { id: chatId } },
+      { message_id: 141, chat: { id: chatId } },
+    ]);
+    const api = makeTelegramApiTestMock({ sendMediaGroup });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    const error = await sendMessageTelegram(chatId, "album caption", {
+      cfg: TELEGRAM_TEST_CFG,
+      token: "tok",
+      api,
+      mediaUrls: ["https://example.com/a.png", "https://example.com/b.png"],
+      // The primary delivery observer fails after Telegram accepted the whole
+      // media group; custody must still cover both accepted album messages.
+      onDeliveryResult: vi.fn().mockRejectedValue(new Error("delivery observer failed")),
+    }).catch((caught: unknown) => caught);
+
+    expect(isChannelPartialDeliveryError(error)).toBe(true);
+    const deliveryResult = (error as { deliveryResult?: { messageIds?: string[] } }).deliveryResult;
+    expect([...(deliveryResult?.messageIds ?? [])].toSorted()).toEqual(["140", "141"]);
+    expect(sendMediaGroup).toHaveBeenCalledTimes(1);
+  });
+
   it("falls back to separate photo sends when a media group item is not album-compatible", async () => {
     const chatId = "123";
     const sendPhoto = vi.fn().mockResolvedValue({ message_id: 200, chat: { id: chatId } });
