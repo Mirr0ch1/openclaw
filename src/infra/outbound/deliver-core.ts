@@ -362,12 +362,14 @@ export async function deliverOutboundPayloadsCore(
       const beforeCount = results.length;
       let mirroredPayload = payloadSummary;
       let mediaMessageIds: { first?: string; last?: string } | undefined;
-      if (
-        deliveryHandler.sendPayload &&
+      // Multi-media payloads route through the channel payload transport when
+      // available so a channel can group them (e.g. Telegram albums); the simple
+      // per-media fanout only handles single-media or payload-less channels.
+      const routesPayloadTransport =
         payloadRequiresDurablePayloadTransport(effectivePayload, {
           sendTextOnlyErrorPayloads: deliveryHandler.sendTextOnlyErrorPayloads,
-        })
-      ) {
+        }) || payloadSummary.mediaUrls.length >= 2;
+      if (deliveryHandler.sendPayload && routesPayloadTransport) {
         const delivery = await deliveryHandler.sendPayload(
           effectivePayload,
           withPreparedTarget(applySendReplyToConsumption(sendOverrides)),
