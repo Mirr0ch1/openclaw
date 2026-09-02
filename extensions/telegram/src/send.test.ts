@@ -5114,6 +5114,113 @@ describe("sendMessageTelegram media group (album)", () => {
     expect(res.receipt?.parts).toHaveLength(3);
   });
 
+  it("preserves forum topic routing on an album receipt", async () => {
+    const chatId = "-1001234567890";
+    const sendMediaGroup = vi.fn().mockResolvedValue([
+      { message_id: 900, message_thread_id: 271, chat: { id: chatId, type: "supergroup" } },
+      { message_id: 901, message_thread_id: 271, chat: { id: chatId, type: "supergroup" } },
+    ]);
+    const api = makeTelegramApiTestMock({ sendMediaGroup });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    const res = await sendMessageTelegram(chatId, "album caption", {
+      cfg: TELEGRAM_TEST_CFG,
+      token: "tok",
+      api,
+      mediaUrls: ["https://example.com/a.png", "https://example.com/b.png"],
+      messageThreadId: 271,
+    });
+
+    expect(sendMediaGroup).toHaveBeenCalledTimes(1);
+    const groupParams = requireMockCall(
+      firstMockCall(sendMediaGroup, "sendMediaGroup call"),
+      "sendMediaGroup call",
+    )[2] as Record<string, unknown>;
+    expect(groupParams.message_thread_id).toBe(271);
+    expect(res.messageId).toBe("900");
+    expect(res.receipt?.threadId).toBe("271");
+    expect(res.receipt?.parts.map(({ threadId, replyToId }) => ({ threadId, replyToId }))).toEqual([
+      { threadId: "271", replyToId: undefined },
+      { threadId: "271", replyToId: undefined },
+    ]);
+  });
+
+  it("preserves explicit native reply routing on an album receipt", async () => {
+    const chatId = "123";
+    const sendMediaGroup = vi.fn().mockResolvedValue([
+      { message_id: 910, chat: { id: chatId } },
+      { message_id: 911, chat: { id: chatId } },
+    ]);
+    const api = makeTelegramApiTestMock({ sendMediaGroup });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    const res = await sendMessageTelegram(chatId, "album caption", {
+      cfg: TELEGRAM_TEST_CFG,
+      token: "tok",
+      api,
+      mediaUrls: ["https://example.com/a.png", "https://example.com/b.png"],
+      replyToMessageId: 500,
+      replyToIdSource: "explicit",
+      replyToMode: "all",
+    });
+
+    expect(sendMediaGroup).toHaveBeenCalledTimes(1);
+    expect(res.messageId).toBe("910");
+    expect(res.receipt?.replyToId).toBe("500");
+    expect(res.receipt?.parts.map((part) => part.replyToId)).toEqual(["500", "500"]);
+  });
+
+  it("preserves topic and reply routing on an album caption follow-up", async () => {
+    const chatId = "-1001234567890";
+    const longText = "A".repeat(1100);
+    const sendMediaGroup = vi.fn().mockResolvedValue([
+      { message_id: 920, message_thread_id: 271, chat: { id: chatId, type: "supergroup" } },
+      { message_id: 921, message_thread_id: 271, chat: { id: chatId, type: "supergroup" } },
+    ]);
+    const sendMessage = vi.fn().mockResolvedValue({
+      message_id: 922,
+      message_thread_id: 271,
+      chat: { id: chatId, type: "supergroup" },
+    });
+    const api = makeTelegramApiTestMock({ sendMediaGroup, sendMessage });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    // An over-length caption is delivered as a follow-up text message. The
+    // album (one media group send) keeps the accepted topic and implicit reply;
+    // the first-mode reply is single-use, so the follow-up text does not reply.
+    const res = await sendMessageTelegram(chatId, longText, {
+      cfg: TELEGRAM_TEST_CFG,
+      token: "tok",
+      api,
+      mediaUrls: ["https://example.com/a.png", "https://example.com/b.png"],
+      messageThreadId: 271,
+      replyToMessageId: 500,
+      replyToIdSource: "implicit",
+      replyToMode: "first",
+    });
+
+    expect(sendMediaGroup).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(res.messageId).toBe("922");
+    expect(res.receipt?.threadId).toBe("271");
+    expect(res.receipt?.replyToId).toBe("500");
+    expect(
+      res.receipt?.parts.map(({ kind, index, threadId, replyToId }) => ({
+        kind,
+        index,
+        threadId,
+        replyToId,
+      })),
+    ).toEqual([
+      { kind: "media", index: 0, threadId: "271", replyToId: "500" },
+      { kind: "text", index: 1, threadId: "271", replyToId: "500" },
+      { kind: "text", index: 2, threadId: "271", replyToId: undefined },
+    ]);
+  });
+
   it("uses the single-media path for a single mediaUrls entry", async () => {
     const chatId = "123";
     const sendPhoto = vi.fn().mockResolvedValue({ message_id: 400, chat: { id: chatId } });

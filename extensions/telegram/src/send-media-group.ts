@@ -232,7 +232,19 @@ export async function sendTelegramMediaAlbum(
     throw new Error("Telegram media group send returned no messages");
   }
   const acceptedMediaParams = toAcceptedThreadScopedParams(groupDelivery.acceptedParams);
-  const mediaUsedReplyTo = resolveAcceptedReplyToMessageId(acceptedMediaParams) !== undefined;
+  const mediaReplyToId = resolveAcceptedReplyToMessageId(acceptedMediaParams)?.toString();
+  const mediaUsedReplyTo = mediaReplyToId !== undefined;
+  // The accepted topic can arrive as message_thread_id (forum/bot-private DMs)
+  // or direct_messages_topic_id (channel Direct Messages topics). Both are the
+  // accepted routing fact a downstream receipt must preserve.
+  const acceptedParams = groupDelivery.acceptedParams as {
+    message_thread_id?: unknown;
+    direct_messages_topic_id?: unknown;
+  };
+  const albumThreadId = [
+    acceptedParams.message_thread_id,
+    acceptedParams.direct_messages_topic_id,
+  ].find((value) => typeof value === "number" && Number.isFinite(value)) as number | undefined;
   const primaryMessageId = resolveTelegramMessageIdOrThrow(primary, "media group send");
   const resolvedChatId = String(primary.chat?.id ?? chatId);
   const albumResults = results.map((message) => ({
@@ -260,9 +272,7 @@ export async function sendTelegramMediaAlbum(
         message: primary,
         messageId: primaryMessageId,
         ...(deliveredCaption ? { text: deliveredCaption } : {}),
-        ...(acceptedMediaParams?.message_thread_id !== undefined
-          ? { messageThreadId: acceptedMediaParams.message_thread_id }
-          : {}),
+        ...(albumThreadId !== undefined ? { messageThreadId: albumThreadId } : {}),
       },
       finalPart,
     );
@@ -313,6 +323,8 @@ export async function sendTelegramMediaAlbum(
   const albumReceipt = createMessageReceiptFromOutboundResults({
     results: albumResults,
     kind: "media",
+    ...(albumThreadId !== undefined ? { threadId: String(albumThreadId) } : {}),
+    ...(mediaReplyToId ? { replyToId: mediaReplyToId } : {}),
   });
   logTelegramOutboundSendOk({
     accountId: account.accountId,
@@ -320,7 +332,7 @@ export async function sendTelegramMediaAlbum(
     messageId: String(primaryMessageId),
     operation: "sendMediaGroup",
     deliveryKind: "media_group",
-    messageThreadId: acceptedMediaParams?.message_thread_id,
+    messageThreadId: albumThreadId,
     replyToMessageId: opts.replyToMessageId,
     silent: opts.silent,
   });
@@ -376,11 +388,22 @@ export async function sendTelegramMediaAlbum(
     const receipt = createMessageReceiptFromOutboundResults({
       results: [...albumResults, textResult],
       kind: "text",
+      ...(albumThreadId !== undefined ? { threadId: String(albumThreadId) } : {}),
     });
+    if (mediaReplyToId) {
+      receipt.replyToId = mediaReplyToId;
+    }
+    // The whole album shared one accepted route: every album part keeps the
+    // topic/reply facts. The follow-up text only inherits the reply when it was
+    // itself sent as a reply (mirrors the single-media long-caption path).
     receipt.parts = receipt.parts.map((part, index) => ({
       ...part,
       index,
       ...(index === 0 ? { kind: "media" } : {}),
+      ...(mediaReplyToId &&
+      (index < albumResults.length || (!textResult.receipt && !singleUseReplyTo))
+        ? { replyToId: mediaReplyToId }
+        : {}),
     }));
     return { ...textResult, chatId: resolvedChatId, receipt };
   }
