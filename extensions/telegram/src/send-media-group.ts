@@ -245,6 +245,28 @@ export async function sendTelegramMediaAlbum(
   // later report/projection failure must not strand accepted siblings outside
   // the partial-delivery id list.
   const custodyStart = sender.parts.length;
+  // The album primary enters prompt context exactly once. Without a text
+  // follow-up it is the final part; with a follow-up (caption overflow or
+  // buttons) it is recorded before the first follow-up chunk is accepted so
+  // the visible album survives even when the caption/controls move to text.
+  let albumPromptContextRecorded = false;
+  const recordAlbumPromptContext = async (finalPart: boolean) => {
+    if (albumPromptContextRecorded) {
+      return;
+    }
+    albumPromptContextRecorded = true;
+    await recordDeliveredPromptContext(
+      {
+        message: primary,
+        messageId: primaryMessageId,
+        ...(deliveredCaption ? { text: deliveredCaption } : {}),
+        ...(acceptedMediaParams?.message_thread_id !== undefined
+          ? { messageThreadId: acceptedMediaParams.message_thread_id }
+          : {}),
+      },
+      finalPart,
+    );
+  };
   const acceptedParts = results.map((message, index) =>
     sender.register({
       result: message,
@@ -279,17 +301,7 @@ export async function sendTelegramMediaAlbum(
         },
       );
       if (!needsSeparateText) {
-        await recordDeliveredPromptContext(
-          {
-            message: accepted.result,
-            messageId,
-            ...(deliveredCaption ? { text: deliveredCaption } : {}),
-            ...(acceptedMediaParams?.message_thread_id !== undefined
-              ? { messageThreadId: acceptedMediaParams.message_thread_id }
-              : {}),
-          },
-          true,
-        );
+        await recordAlbumPromptContext(true);
       }
     }
   } catch (error) {
@@ -338,6 +350,11 @@ export async function sendTelegramMediaAlbum(
     try {
       textResult = await sendChunkedText(followUpSendText, "media group text follow-up send", {
         replyToAlreadyUsed: singleUseReplyTo && mediaUsedReplyTo,
+        // The follow-up text carries the caption/controls, but the already
+        // accepted album is the visible media. Record it before the first
+        // follow-up chunk so a successful caption/button host still leaves the
+        // album in prompt context (mirrors the single-media long-caption path).
+        beforeFirstAccepted: () => recordAlbumPromptContext(false),
       });
     } catch (error) {
       // The follow-up text is the only possible host for an over-length caption
@@ -347,16 +364,13 @@ export async function sendTelegramMediaAlbum(
       // accepted album must be reported as a partial delivery that keeps every
       // album message id and the complete album receipt.
       if (!isChannelPartialDeliveryError(error) && isTelegramEmptyContentError(error)) {
-        await recordDeliveredPromptContext(
-          { message: primary, messageId: primaryMessageId },
-          false,
-        );
+        await recordAlbumPromptContext(false);
         return sender.fail(error, custodyStart, {
           receipt: albumReceipt,
           visibleReplySent: true,
         });
       }
-      await recordDeliveredPromptContext({ message: primary, messageId: primaryMessageId }, false);
+      await recordAlbumPromptContext(false);
       return sender.fail(error);
     }
     const receipt = createMessageReceiptFromOutboundResults({

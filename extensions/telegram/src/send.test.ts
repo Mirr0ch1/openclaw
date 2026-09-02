@@ -4950,6 +4950,59 @@ describe("sendMessageTelegram media group (album)", () => {
     expect(sendMediaGroup).toHaveBeenCalledTimes(1);
   });
 
+  it("records the accepted album before a successful text follow-up", async () => {
+    const storePath = `/tmp/openclaw-telegram-album-before-followup-${process.pid}-${Date.now()}.json`;
+    const chatId = "123";
+    const sendMediaGroup = vi.fn().mockResolvedValue([
+      { message_id: 180, chat: { id: chatId } },
+      { message_id: 181, chat: { id: chatId } },
+    ]);
+    const sendMessage = vi.fn().mockResolvedValue({ message_id: 182, chat: { id: chatId } });
+    const api = makeTelegramApiTestMock({ sendMediaGroup, sendMessage });
+    const cursor = createTelegramPromptContextProjectionCursor({
+      transcriptMessageId: "assistant-album-before-followup",
+    });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    // A successful caption/button follow-up must still record the already
+    // accepted album into prompt context before the first text chunk lands,
+    // mirroring the single-media long-caption path.
+    const res = await sendMessageTelegram(chatId, "album caption", {
+      cfg: { session: { store: storePath } },
+      token: "tok",
+      api,
+      mediaUrls: ["https://example.com/a.png", "https://example.com/b.png"],
+      buttons: [[{ text: "Open", url: "https://example.com" }]],
+      promptContextProjectionPlan: { cursor, finalPart: true },
+    });
+
+    expect(sendMediaGroup).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(res.messageId).toBe("182");
+    const cache = createTelegramMessageCache({
+      scope: resolveTelegramMessageCacheScope(storePath),
+    });
+    const cachedAlbum = await cache.get({
+      accountId: "default",
+      chatId,
+      messageId: "180",
+    });
+    const cachedText = await cache.get({
+      accountId: "default",
+      chatId,
+      messageId: "182",
+    });
+    expect(cachedAlbum?.promptContextProjectionMarker).toEqual({
+      kind: "valid",
+      projection: { ...cursor.source, partIndex: 0, finalPart: false },
+    });
+    expect(cachedText?.promptContextProjectionMarker).toEqual({
+      kind: "valid",
+      projection: { ...cursor.source, partIndex: 1, finalPart: true },
+    });
+  });
+
   it("falls back to separate photo sends when a media group item is not album-compatible", async () => {
     const chatId = "123";
     const sendPhoto = vi.fn().mockResolvedValue({ message_id: 200, chat: { id: chatId } });
