@@ -4801,6 +4801,46 @@ describe("sendMessageTelegram media group (album)", () => {
     expect(res.messageId).toBe("201");
   });
 
+  it("preserves first-item metadata across album fallback sends", async () => {
+    const chatId = "123";
+    const sendPhoto = vi.fn().mockResolvedValue({ message_id: 210, chat: { id: chatId } });
+    const sendDocument = vi.fn().mockResolvedValue({ message_id: 211, chat: { id: chatId } });
+    const api = makeTelegramApiTestMock({ sendPhoto, sendDocument });
+
+    loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
+
+    const res = await sendMessageTelegram(chatId, "shared caption", {
+      cfg: TELEGRAM_TEST_CFG,
+      token: "tok",
+      api,
+      mediaUrls: [
+        "https://example.com/a.png",
+        "https://example.com/b.pdf",
+        "https://example.com/c.pdf",
+      ],
+      replyToMessageId: 42,
+      buttons: [[{ text: "Open", url: "https://example.com" }]],
+    });
+
+    expect(sendPhoto).toHaveBeenCalledTimes(1);
+    expect(sendDocument).toHaveBeenCalledTimes(2);
+
+    // First physical send carries the one-time metadata...
+    const photoParams = sendPhoto.mock.calls[0]?.[2] as Record<string, unknown>;
+    expect(photoParams.caption).toBe("shared caption");
+    expect(photoParams.reply_to_message_id).toBe(42);
+    expect(photoParams.reply_markup).toBeDefined();
+
+    // ...and later sends must not repeat it.
+    for (const call of sendDocument.mock.calls) {
+      const docParams = call[2] as Record<string, unknown>;
+      expect(docParams.caption).toBeUndefined();
+      expect(docParams.reply_to_message_id).toBeUndefined();
+      expect(docParams.reply_markup).toBeUndefined();
+    }
+    expect(res.messageId).toBe("211");
+  });
+
   it("propagates an ambiguous media group failure instead of resending per media", async () => {
     const chatId = "123";
     const sendMediaGroup = vi.fn().mockRejectedValue(new Error("500: Internal Server Error"));

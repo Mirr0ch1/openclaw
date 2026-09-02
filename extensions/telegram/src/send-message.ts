@@ -234,8 +234,18 @@ async function sendMessageTelegramWithContext(
   }
 
   // Sends a single media attachment (photo/document/animation/audio/video/voice)
-  // following the established per-media delivery semantics.
-  const sendSingleMedia = async (singleMediaUrl: string): Promise<TelegramSendResult> => {
+  // following the established per-media delivery semantics. When part of a
+  // multi-media sequence (album fallback), only the first item carries the
+  // caption, inline keyboard, and implicit reply target, and only the last item
+  // finalizes the prompt-context projection — mirroring the media-sequence
+  // policy used by the payload transport.
+  const sendSingleMedia = async (
+    singleMediaUrl: string,
+    sequence?: { isFirst: boolean; isLast: boolean },
+  ): Promise<TelegramSendResult> => {
+    const isFirst = sequence?.isFirst ?? true;
+    const isLast = sequence?.isLast ?? true;
+    const itemText = isFirst ? text : "";
     const media = await loadWebMedia(
       singleMediaUrl,
       buildOutboundMediaLoadOptions({
@@ -248,7 +258,7 @@ async function sendMessageTelegramWithContext(
     );
     const mediaPlan = prepareTelegramOutboundMedia({
       media,
-      text,
+      text: itemText,
       textMode,
       tableMode,
       forceDocument: opts.forceDocument,
@@ -273,11 +283,11 @@ async function sendMessageTelegramWithContext(
     const needsSeparateText = Boolean(followUpText);
     // When splitting, put reply_markup only on the follow-up text (the "main" content),
     // not on the media message.
-    const mediaThreadParams = preparedThreadParams;
+    const mediaThreadParams = isFirst ? preparedThreadParams : buildThreadParams(false);
     const mediaUsedReplyTo = resolveAcceptedReplyToMessageId(mediaThreadParams) !== undefined;
     const baseMediaParams = {
       ...mediaThreadParams,
-      ...(!needsSeparateText && replyMarkup ? { reply_markup: replyMarkup } : {}),
+      ...(!needsSeparateText && isFirst && replyMarkup ? { reply_markup: replyMarkup } : {}),
     };
     const videoDimensions =
       mediaPlan.deliveryKind === "video" && !mediaPlan.isVideoNote
@@ -301,7 +311,7 @@ async function sendMessageTelegramWithContext(
       if (
         mediaSender.label === "voice" &&
         isTelegramVoiceMessagesForbiddenError(error) &&
-        text.trim()
+        itemText.trim()
       ) {
         logVerbose(
           "telegram sendVoice forbidden by recipient privacy settings; falling back to text",
@@ -364,9 +374,9 @@ async function sendMessageTelegramWithContext(
           accountId: account.accountId,
           agentId: ownerAgentId,
         });
-        await reportMediaDelivery(!needsSeparateText && Boolean(replyMarkup));
+        await reportMediaDelivery(!needsSeparateText && isFirst && Boolean(replyMarkup));
         if (!needsSeparateText) {
-          await recordMediaPromptContext(true);
+          await recordMediaPromptContext(isLast);
         }
       },
       () => ({
@@ -503,10 +513,15 @@ async function sendMessageTelegramWithContext(
     }
     // The media group path is not applicable (mixed/non-album media types, count
     // outside 2-10, or the group request failed); fall back to sending each media
-    // attachment as its own message with the established per-media semantics.
+    // attachment as its own message with the established per-media sequencing:
+    // first-item metadata (caption, keyboard, implicit reply) is not repeated.
+    const lastIndex = allMediaUrls.length - 1;
     let lastResult: TelegramSendResult | undefined;
-    for (const entry of allMediaUrls) {
-      lastResult = await sendSingleMedia(entry);
+    for (const [index, entry] of allMediaUrls.entries()) {
+      lastResult = await sendSingleMedia(entry, {
+        isFirst: index === 0,
+        isLast: index === lastIndex,
+      });
     }
     return lastResult!;
   }
