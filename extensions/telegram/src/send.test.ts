@@ -4781,16 +4781,15 @@ describe("sendMessageTelegram media group (album)", () => {
     expect(res.chatId).toBe(chatId);
   });
 
-  it("attaches inline keyboards to the accepted primary album message", async () => {
+  it("hosts album inline buttons on a caption follow-up message", async () => {
     const chatId = "123";
     const sendMediaGroup = vi.fn().mockResolvedValue([
       { message_id: 110, chat: { id: chatId } },
       { message_id: 111, chat: { id: chatId } },
     ]);
-    const editMessageReplyMarkup = vi
-      .fn()
-      .mockResolvedValue({ message_id: 110, chat: { id: chatId } });
-    const api = makeTelegramApiTestMock({ sendMediaGroup, editMessageReplyMarkup });
+    const sendMessage = vi.fn().mockResolvedValue({ message_id: 120, chat: { id: chatId } });
+    const editMessageReplyMarkup = vi.fn();
+    const api = makeTelegramApiTestMock({ sendMediaGroup, sendMessage, editMessageReplyMarkup });
 
     loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
 
@@ -4802,46 +4801,68 @@ describe("sendMessageTelegram media group (album)", () => {
       buttons: [[{ text: "Open", url: "https://example.com" }]],
     });
 
-    // sendMediaGroup must not carry reply_markup: Telegram rejects that
-    // parameter for media group sends.
-    const groupParams = requireMockCall(
+    // Telegram albums cannot host an inline keyboard (no reply_markup on
+    // sendMediaGroup, and editMessageReplyMarkup on an album message is
+    // rejected), so the media group is sent captionless without a retrofit;
+    // the caption text and buttons are delivered on a follow-up message.
+    const [groupChatId, inputs, groupParams] = requireMockCall(
       firstMockCall(sendMediaGroup, "sendMediaGroup call"),
       "sendMediaGroup call",
-    )[2] as Record<string, unknown>;
-    expect(groupParams.reply_markup).toBeUndefined();
+    );
+    expect(groupChatId).toBe(chatId);
+    const mediaInputs = inputs as Array<Record<string, unknown>>;
+    expect(mediaInputs.map(({ type }) => type)).toEqual(["photo", "photo"]);
+    expect(mediaInputs[0]?.caption).toBeUndefined();
+    expect(mediaInputs[1]?.caption).toBeUndefined();
+    expect((groupParams as Record<string, unknown>).reply_markup).toBeUndefined();
+    expect(editMessageReplyMarkup).not.toHaveBeenCalled();
 
-    // The keyboard is attached to the accepted primary message instead.
-    expect(editMessageReplyMarkup).toHaveBeenCalledTimes(1);
-    expect(editMessageReplyMarkup.mock.calls[0]?.[0]).toBe(chatId);
-    expect(editMessageReplyMarkup.mock.calls[0]?.[1]).toBe(110);
-    expect(res.messageId).toBe("110");
-    expect(res.meta?.telegramHasInlineKeyboard).toBe(true);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const [textChatId, text, textParams] = sendMessage.mock.calls[0]!;
+    expect(textChatId).toBe(chatId);
+    expect(text).toBe("album caption");
+    expect((textParams as Record<string, unknown>).reply_markup).toEqual({
+      inline_keyboard: [[{ text: "Open", url: "https://example.com" }]],
+    });
+    expect(res.messageId).toBe("120");
   });
 
-  it("reports a partial delivery when the album keyboard edit fails", async () => {
+  it("hosts album buttons on the control text when no caption is set", async () => {
     const chatId = "123";
     const sendMediaGroup = vi.fn().mockResolvedValue([
       { message_id: 130, chat: { id: chatId } },
       { message_id: 131, chat: { id: chatId } },
     ]);
-    const editMessageReplyMarkup = vi.fn().mockRejectedValue(new Error("400: Bad Request"));
-    const api = makeTelegramApiTestMock({ sendMediaGroup, editMessageReplyMarkup });
+    const sendMessage = vi.fn().mockResolvedValue({ message_id: 132, chat: { id: chatId } });
+    const api = makeTelegramApiTestMock({ sendMediaGroup, sendMessage });
 
     loadWebMedia.mockImplementation(async (url: string) => mockMediaByUrl(url));
 
-    const error = await sendMessageTelegram(chatId, "album caption", {
+    const res = await sendMessageTelegram(chatId, "", {
       cfg: TELEGRAM_TEST_CFG,
       token: "tok",
       api,
       mediaUrls: ["https://example.com/a.png", "https://example.com/b.png"],
       buttons: [[{ text: "Open", url: "https://example.com" }]],
-    }).catch((caught: unknown) => caught);
+    });
 
-    // The album itself was delivered; the failed keyboard edit surfaces as a
-    // partial delivery instead of a resend.
-    expect(isChannelPartialDeliveryError(error)).toBe(true);
     expect(sendMediaGroup).toHaveBeenCalledTimes(1);
-    expect(editMessageReplyMarkup).toHaveBeenCalledTimes(1);
+    const mediaInputs = requireMockCall(
+      firstMockCall(sendMediaGroup, "sendMediaGroup call"),
+      "sendMediaGroup call",
+    )[1] as Array<Record<string, unknown>>;
+    expect(mediaInputs[0]?.caption).toBeUndefined();
+
+    // With no caption the keyboard still needs a text host, so the channel's
+    // buttons-only fallback text is used.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const [textChatId, text, textParams] = sendMessage.mock.calls[0]!;
+    expect(textChatId).toBe(chatId);
+    expect(text).toBe("Choose an option.");
+    expect((textParams as Record<string, unknown>).reply_markup).toEqual({
+      inline_keyboard: [[{ text: "Open", url: "https://example.com" }]],
+    });
+    expect(res.messageId).toBe("132");
   });
 
   it("falls back to separate photo sends when a media group item is not album-compatible", async () => {
